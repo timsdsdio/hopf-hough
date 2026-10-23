@@ -9,8 +9,8 @@ page.on('pageerror', (e) => console.error('pageerror', e.message));
 await page.setContent('<html><body><canvas id="c" width="16" height="16"></canvas></body></html>');
 await page.addScriptTag({ content: readFileSync(bundle, 'utf8') });
 const res = await page.evaluate(() => {
-  const solver = new HH.GpuSolver(document.getElementById('c'));
-  return HH.runSuite(HH.gpuBackend(solver));
+  const solver = new HH.GpuSolver(document.getElementById('c'), HH.LEGACY_SHADERS);
+  return HH.runSuite(HH.gpuBackend(solver), { base: HH.LEGACY_SETTINGS });
 });
 const KEYS = ['bulkL2', 'shockL2', 'cpuF32L2', 'cpuF64L2', 'coordRoundL2', 'gpuCpuRelL2', 'posErr'];
 let n = 0, bad = 0;

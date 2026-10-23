@@ -67,6 +67,9 @@ export class ShellHistory {
   readonly emitBdx = new Float32Array(MAX_M_T);
   readonly emitBdy = new Float32Array(MAX_M_T);
   readonly emitR = new Float32Array(MAX_M_T);
+  /** Low parts of the knot positions (x ≈ emitX + emitXlo to ~2^-48 relative). */
+  readonly emitXlo = new Float32Array(MAX_M_T);
+  readonly emitYlo = new Float32Array(MAX_M_T);
   readonly emitX64 = new Float64Array(MAX_M_T);
   readonly emitY64 = new Float64Array(MAX_M_T);
   readonly emitUx64 = new Float64Array(MAX_M_T);
@@ -120,6 +123,8 @@ export class ShellHistory {
       const packedV64 = packVelocityForStorage(sample64.bx, sample64.by, velMode);
       this.emitX[m] = f32(sample.x);
       this.emitY[m] = f32(sample.y);
+      this.emitXlo[m] = f32(sample.x - this.emitX[m]);
+      this.emitYlo[m] = f32(sample.y - this.emitY[m]);
       this.emitUx[m] = packedV.ux;
       this.emitUy[m] = packedV.uy;
       this.emitBdx[m] = f32(sample.bdx);
@@ -134,8 +139,9 @@ export class ShellHistory {
       this.emitR64[m] = rShell64;
     }
 
-    // Legacy chord clamp: pull any knot whose chord would be superluminal back inside the light cone.
-    const maxSub = f32(LEGACY_BETA_MAX);
+    // Chord clamp: pull any knot whose chord would be superluminal back inside the light cone
+    // (only fires for unphysical input such as teleporting trajectories).
+    const maxSub = f32(cfg.betaMax);
     for (let m = 0; m < M - 1; m++) {
       const r1 = this.emitR[m];
       const r2 = this.emitR[m + 1];
@@ -147,6 +153,8 @@ export class ShellHistory {
         const shrink = f32(maxSub / chordSpeed);
         this.emitX[m + 1] = f32(this.emitX[m] + f32(dx * shrink));
         this.emitY[m + 1] = f32(this.emitY[m] + f32(dy * shrink));
+        this.emitXlo[m + 1] = 0;
+        this.emitYlo[m + 1] = 0;
       }
     }
   }

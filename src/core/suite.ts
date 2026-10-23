@@ -57,6 +57,12 @@ export interface SuiteOptions {
   base?: Partial<SolverConfig>;
   tStart?: number;
   steps?: number;
+  /**
+   * 'f32' (legacy metric): observers are rounded to float32 and the reference is evaluated at
+   * the rounded point. 'df64': observers keep their double-precision position (hi/lo query)
+   * and the reference is evaluated there.
+   */
+  queryMode?: 'f32' | 'df64';
 }
 
 /** Run one configuration (the legacy `evalEvolvedConfig`). All errors are relative L2 in percent. */
@@ -91,7 +97,8 @@ export function runCase(spec: CaseSpec, backend: FieldBackend, opt: SuiteOptions
 
   const sweep = pulseCrossingSweep(rEval, tEval, spec.beta, spec.nShock, cfg.omega, cfg.c);
   const shockPts = sweep.pts;
-  const gpuShock = backend.evaluate(sim, shockPts);
+  const df64Query = opt.queryMode === 'df64';
+  const gpuShock = backend.evaluate(sim, df64Query ? shockPts : shockPts.map((p) => ({ x: p.x, y: p.y })));
   const hs = sim.shellHistories;
   let shockErrSq = 0, shockExSq = 0, cpuF32ErrSq = 0, cpuF64ErrSq = 0, coordRoundDiffSq = 0, gpuCpuDiffSq = 0;
   for (let k = 0; k < spec.nShock; k++) {
@@ -102,10 +109,11 @@ export function runCase(spec: CaseSpec, backend: FieldBackend, opt: SuiteOptions
     const f32Cpu = evaluateShaderEquivalentFloat32(hs, p.x, p.y, cfg);
     const f64Cpu = evaluateCompactifiedFloat64(hs[0], p.x64, p.y64, cfg);
     gpuCpuDiffSq += Math.pow(gp.ex - f32Cpu.ex, 2) + Math.pow(gp.ey - f32Cpu.ey, 2);
-    shockErrSq += Math.pow(gp.ex - exSameF32.ex, 2) + Math.pow(gp.ey - exSameF32.ey, 2);
+    const exTarget = df64Query ? exUnrounded64 : exSameF32;
+    shockErrSq += Math.pow(gp.ex - exTarget.ex, 2) + Math.pow(gp.ey - exTarget.ey, 2);
     cpuF32ErrSq += Math.pow(f32Cpu.ex - exSameF32.ex, 2) + Math.pow(f32Cpu.ey - exSameF32.ey, 2);
     cpuF64ErrSq += Math.pow(f64Cpu.ex - exUnrounded64.ex, 2) + Math.pow(f64Cpu.ey - exUnrounded64.ey, 2);
-    shockExSq += exSameF32.mag * exSameF32.mag;
+    shockExSq += exTarget.mag * exTarget.mag;
     coordRoundDiffSq += Math.pow(exSameF32.ex - exUnrounded64.ex, 2) + Math.pow(exSameF32.ey - exUnrounded64.ey, 2);
   }
   const rel = (num: number, den: number) => Math.sqrt(num / Math.max(1e-12, den)) * 100.0;

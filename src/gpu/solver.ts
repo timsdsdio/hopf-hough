@@ -7,37 +7,62 @@ import type { ShellHistory } from '../core/shells.js';
 import { MAX_M_T, MAX_SOURCES, type SolverConfig } from '../core/types.js';
 import type { PointField } from '../core/suite.js';
 import { LEGACY_FRAGMENT_SHADER, LEGACY_VERTEX_SHADER } from './legacyShader.js';
+import { FRAGMENT_SHADER, VERTEX_SHADER } from './shader.js';
 
-export interface ShaderSources { vertex: string; fragment: string }
+export interface ShaderSources { vertex: string; fragment: string; production: boolean }
 
-export const LEGACY_SHADERS: ShaderSources = { vertex: LEGACY_VERTEX_SHADER, fragment: LEGACY_FRAGMENT_SHADER };
-
-/** Width of the readback framebuffer (points per draw call). */
-export const READBACK_WIDTH = 256;
+export const LEGACY_SHADERS: ShaderSources = { vertex: LEGACY_VERTEX_SHADER, fragment: LEGACY_FRAGMENT_SHADER, production: false };
+export const PRODUCTION_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: FRAGMENT_SHADER, production: true };
 
 export type UniformValue = number | boolean | [number, number] | [number, number, number, number];
+
+/** Field, magnetic field and resolution indicator at one point (production readback). */
+export interface FullField {
+  ex: number;
+  ey: number;
+  /** Out-of-plane magnetic field B_z (Gaussian units, same scale as E). */
+  bz: number;
+  /**
+   * Resolution indicator: max over sources of ΔR·γ/ρ at the retarded point
+   * (shell spacing × γ over the trajectory's radius of curvature). Values above ~1.5
+   * mean the history is too coarse there; −1 means the retarded point is outside the
+   * stored history (answer not valid).
+   */
+  quality: number;
+}
 
 export class GpuSolver {
   readonly gl: WebGL2RenderingContext;
   readonly program: WebGLProgram;
+  readonly production: boolean;
+  /** Readback tile size (points per draw = width × height). */
+  readonly readW: number;
+  readonly readH: number;
   private readonly uniformCache = new Map<string, WebGLUniformLocation | null>();
   private readonly texPosVel: WebGLTexture;
   private readonly texAccChg: WebGLTexture;
   private readonly texQuery: WebGLTexture;
+  private readonly texPosLo: WebGLTexture | null;
   private readonly fbo: WebGLFramebuffer;
   private readonly posVelData = new Float32Array(MAX_M_T * MAX_SOURCES * 4);
   private readonly accChgData = new Float32Array(MAX_M_T * MAX_SOURCES * 4);
-  private readonly queryData = new Float32Array(READBACK_WIDTH * 4);
-  private readonly readData = new Float32Array(READBACK_WIDTH * 4);
-  /** Optional extra textures uploaded by subclasses/extensions (unit → texture). */
+  private readonly posLoData: Float32Array | null;
+  private readonly queryData: Float32Array;
+  private readonly readData: Float32Array;
   uploadedCount = 0;
   uploadedM = 0;
 
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, shaders: ShaderSources = LEGACY_SHADERS) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, shaders: ShaderSources = PRODUCTION_SHADERS) {
     const gl = canvas.getContext('webgl2', { antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('WebGL2 is not available in this browser.');
     if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float is required for float readback.');
     this.gl = gl;
+    this.production = shaders.production;
+    this.readW = 256;
+    this.readH = shaders.production ? 64 : 1;
+    this.queryData = new Float32Array(this.readW * this.readH * 4);
+    this.readData = new Float32Array(this.readW * this.readH * 4);
+    this.posLoData = shaders.production ? new Float32Array(MAX_M_T * MAX_SOURCES * 4) : null;
     this.program = this.link(shaders);
     gl.useProgram(this.program);
 
@@ -52,7 +77,8 @@ export class GpuSolver {
     this.texAccChg = this.dataTexture(1);
     this.texQuery = this.dataTexture(2);
     const verifyTex = this.dataTexture(3);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, READBACK_WIDTH, 1, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.readW, this.readH, 0, gl.RGBA, gl.FLOAT, null);
+    this.texPosLo = shaders.production ? this.dataTexture(4) : null;
     const fbo = gl.createFramebuffer();
     if (!fbo) throw new Error('Could not create framebuffer.');
     this.fbo = fbo;
@@ -63,6 +89,7 @@ export class GpuSolver {
     this.set('u_texPosVel', 0);
     this.set('u_texAccChg', 1);
     this.set('u_texQueryCoords', 2);
+    if (shaders.production) { this.set('u_texPosLo', 4); this.setFloat('u_one', 1.0); }
   }
 
   private link(src: ShaderSources): WebGLProgram {
@@ -71,9 +98,7 @@ export class GpuSolver {
       const sh = gl.createShader(type)!;
       gl.shaderSource(sh, text);
       gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
-        throw new Error('Shader compile failed: ' + gl.getShaderInfoLog(sh));
-      }
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('Shader compile failed: ' + gl.getShaderInfoLog(sh));
       return sh;
     };
     const prog = gl.createProgram()!;
@@ -96,7 +121,7 @@ export class GpuSolver {
     return tex;
   }
 
-  /** Set a uniform by name (int for integers/booleans unless `asFloat`). */
+  /** Set a uniform by name (int for integers/booleans unless `asFloat`). Unknown names are ignored. */
   set(name: string, value: UniformValue, asFloat = false): void {
     const gl = this.gl;
     let loc = this.uniformCache.get(name);
@@ -114,6 +139,7 @@ export class GpuSolver {
   upload(histories: readonly ShellHistory[], M: number): void {
     const gl = this.gl;
     const rows = Math.max(1, histories.length);
+    const lo = this.posLoData;
     for (let s = 0; s < histories.length; s++) {
       const h = histories[s];
       const off = s * M * 4;
@@ -127,6 +153,7 @@ export class GpuSolver {
         this.accChgData[i + 1] = h.emitBdy[m];
         this.accChgData[i + 2] = h.charge;
         this.accChgData[i + 3] = h.emitR[m];
+        if (lo) { lo[i] = h.emitXlo[m]; lo[i + 1] = h.emitYlo[m]; lo[i + 2] = 0; lo[i + 3] = 0; }
       }
     }
     const n = M * rows * 4;
@@ -136,6 +163,11 @@ export class GpuSolver {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.texAccChg);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, rows, 0, gl.RGBA, gl.FLOAT, this.accChgData.subarray(0, n));
+    if (lo && this.texPosLo) {
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, this.texPosLo);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, rows, 0, gl.RGBA, gl.FLOAT, lo.subarray(0, n));
+    }
     this.uploadedCount = histories.length;
     this.uploadedM = M;
   }
@@ -147,38 +179,66 @@ export class GpuSolver {
     this.set('u_velMode', cfg.velMode);
     this.setFloat('u_scaleL', cfg.scaleL);
     this.setFloat('u_softEps', cfg.softEps);
-    this.setFloat('u_c', cfg.c);
+    if (this.production) {
+      this.setFloat('u_c', cfg.c);
+      this.set('u_newton', cfg.newton);
+      this.set('u_certMode', cfg.certMode);
+      this.set('u_rootMode', cfg.rootMode);
+      this.set('u_precision', cfg.precision);
+      this.setFloat('u_betaMax', cfg.betaMax);
+      this.setFloat('u_one', 1.0);
+    }
   }
 
-  /**
-   * Evaluate the field at arbitrary points through a float framebuffer.
-   * Returns E and the first source's reconstructed emission point per query.
-   */
-  readback(points: readonly { x: number; y: number }[], cfg: SolverConfig): PointField[] {
+  /** Raw readback: 4 floats per point in the requested layout. */
+  private readRaw(points: readonly { x: number; y: number; x64?: number; y64?: number }[], cfg: SolverConfig, layout: 0 | 1): Float32Array {
     const gl = this.gl;
     gl.useProgram(this.program);
     this.setSolverUniforms(cfg);
     this.set('u_readbackMode', 1);
-    const out: PointField[] = [];
-    for (let start = 0; start < points.length; start += READBACK_WIDTH) {
-      const count = Math.min(READBACK_WIDTH, points.length - start);
+    this.set('u_readbackLayout', layout);
+    const tile = this.readW * this.readH;
+    const out = new Float32Array(points.length * 4);
+    for (let start = 0; start < points.length; start += tile) {
+      const count = Math.min(tile, points.length - start);
+      const rowsUsed = Math.ceil(count / this.readW);
       this.queryData.fill(0);
       for (let i = 0; i < count; i++) {
-        this.queryData[i * 4] = Math.fround(points[start + i].x);
-        this.queryData[i * 4 + 1] = Math.fround(points[start + i].y);
+        const p = points[start + i];
+        const hx = Math.fround(p.x), hy = Math.fround(p.y);
+        this.queryData[i * 4] = hx;
+        this.queryData[i * 4 + 1] = hy;
+        // Low parts let callers place observers to better than float32 resolution (production shader only).
+        this.queryData[i * 4 + 2] = p.x64 !== undefined ? Math.fround(p.x64 - hx) : 0;
+        this.queryData[i * 4 + 3] = p.y64 !== undefined ? Math.fround(p.y64 - hy) : 0;
       }
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D, this.texQuery);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, READBACK_WIDTH, 1, 0, gl.RGBA, gl.FLOAT, this.queryData);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.readW, this.readH, 0, gl.RGBA, gl.FLOAT, this.queryData);
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-      gl.viewport(0, 0, READBACK_WIDTH, 1);
+      gl.viewport(0, 0, this.readW, rowsUsed);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.readPixels(0, 0, READBACK_WIDTH, 1, gl.RGBA, gl.FLOAT, this.readData);
+      gl.readPixels(0, 0, this.readW, rowsUsed, gl.RGBA, gl.FLOAT, this.readData);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      for (let i = 0; i < count; i++) {
-        out.push({ ex: this.readData[i * 4], ey: this.readData[i * 4 + 1], emitX: this.readData[i * 4 + 2], emitY: this.readData[i * 4 + 3] });
-      }
+      out.set(this.readData.subarray(0, count * 4), start * 4);
     }
+    return out;
+  }
+
+  /** Legacy-compatible readback: E and the first source's reconstructed emission point. */
+  readback(points: readonly { x: number; y: number; x64?: number; y64?: number }[], cfg: SolverConfig): PointField[] {
+    const raw = this.readRaw(points, cfg, 0);
+    const out: PointField[] = new Array(points.length);
+    for (let i = 0; i < points.length; i++) out[i] = { ex: raw[i * 4], ey: raw[i * 4 + 1], emitX: raw[i * 4 + 2], emitY: raw[i * 4 + 3] };
+    return out;
+  }
+
+  /** E, B_z and the resolution indicator at arbitrary points (production shader). */
+  readFull(points: readonly { x: number; y: number; x64?: number; y64?: number }[], cfg: SolverConfig): FullField[] {
+    if (!this.production) throw new Error('readFull needs the production shader.');
+    const raw = this.readRaw(points, cfg, 1);
+    const out: FullField[] = new Array(points.length);
+    for (let i = 0; i < points.length; i++) out[i] = { ex: raw[i * 4], ey: raw[i * 4 + 1], bz: raw[i * 4 + 2], quality: raw[i * 4 + 3] };
     return out;
   }
 

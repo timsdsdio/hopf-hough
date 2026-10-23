@@ -6,7 +6,7 @@ export interface Kinematics {
   /** Velocity divided by c (β). */
   bx: number;
   by: number;
-  /** Acceleration divided by c (dβ/dt, per unit time). */
+  /** Acceleration divided by c² (equivalently (dβ/dt)/c), so the radiation term needs no extra 1/c. */
   bdx: number;
   bdy: number;
   /** Charge in units of the elementary charge used by the kernel (±1 for the presets). */
@@ -53,6 +53,16 @@ export interface SolverConfig {
   gridRMax: number;
   /** Apply the Nyquist prefilter/taper on coarse compactified shells. */
   prefilter: boolean;
+  /** Newton steps after the bracketing search. */
+  newton: number;
+  /** Causality limiter: 0 = Theorem 1 (legacy), 1 = |z'|² Bernstein-coefficient certificate, 2 = none. */
+  certMode: 0 | 1 | 2;
+  /** Root search: 0 = legacy spline bisection, 1 = knot bisection + safeguarded Newton. */
+  rootMode: 0 | 1;
+  /** Root-function arithmetic: 0 = float32, 1 = double-float with hi/lo knot positions. */
+  precision: 0 | 1;
+  /** Speed cap used by the knot clamps and the limiter. */
+  betaMax: number;
 }
 
 export const DEFAULT_CONFIG: SolverConfig = {
@@ -68,6 +78,16 @@ export const DEFAULT_CONFIG: SolverConfig = {
   gridMode: 'compactified',
   gridRMax: 220.0,
   prefilter: true,
+  newton: 3,
+  certMode: 1,
+  rootMode: 1,
+  precision: 1,
+  betaMax: 0.9999995,
+};
+
+/** Settings that reproduce the original solver (used for regression and the legacy tables). */
+export const LEGACY_SETTINGS: Pick<SolverConfig, 'newton' | 'certMode' | 'rootMode' | 'precision' | 'betaMax' | 'softEps'> = {
+  newton: 2, certMode: 0, rootMode: 0, precision: 0, betaMax: 0.99995, softEps: 0.06,
 };
 
 /** Largest number of shells per source supported by the texture layout. */
