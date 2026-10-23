@@ -105,7 +105,7 @@ If you use hopf-hough, please cite the preprint (see [CITATION.cff](CITATION.cff
 
 ## Development and AI assistance
 
-hopf-hough was conceived and directed by Tim Huff. AI systems contributed substantially: Gemini Argon (Google) to the original shader, the causality certificate and the first manuscript; Astra (OpenAI) to adversarial review of earlier drafts and code; Claude (Anthropic; Claude Fable 5.1 and Claude Opus 5.5) to the review of the preprint, the diagnosis of the accuracy floor and limiter, the TypeScript port, the production shader, the tests and this documentation. All results in this repository are produced by the code and tests in it, and were reviewed by the author.
+hopf-hough was conceived and directed by Tim Huff. AI systems contributed substantially: Gemini Argon (Google) to the original shader, the causality certificate and the first manuscript; Astra (OpenAI) to adversarial review of earlier drafts and code; Claude (Anthropic; Claude Fable 5.1 and Claude Opus 5.5) to the review of the preprint, the diagnosis of the accuracy floor and limiter, the TypeScript port, the production shader, the tests, the audit of the validity indicator, the PyCharge benchmark and JAX port, the diagnosis and fix of the Metal compiler issue, and this documentation. All results in this repository are produced by the code and tests in it, and were reviewed by the author.
 
 ## License
 
