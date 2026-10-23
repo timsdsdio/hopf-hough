@@ -77,7 +77,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 |---|---|---|---|---|
 | 1.15 | 2.7e-5% | 0/64 | 2.7e-5% | 5.2e-4% |
 | 3 | 0.0014% | 0/64 | 0.0014% | 0.0059% |
-| 10 | 0.055% | 0/64 | 0.055% | 0.40% |
+| 10 | 0.055% | 2/64 | 0.048% | 0.19% |
 | 30 | 2.9% | 64/64 | — | — |
 | 100 | >100% | 64/64 | — | — |
 | 200 | >100% | 64/64 | — | — |
@@ -88,7 +88,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 |---|---|---|---|---|
 | 1.15 | 2.7e-5% | 0/64 | 2.7e-5% | 5.2e-4% |
 | 3 | 0.0014% | 0/64 | 0.0014% | 0.0059% |
-| 10 | 0.055% | 0/64 | 0.055% | 0.40% |
+| 10 | 0.055% | 2/64 | 0.048% | 0.19% |
 | 30 | 9.3% | 64/64 | — | — |
 | 100 | 99% | 64/64 | — | — |
 | 200 | 100% | 64/64 | — | — |
@@ -100,7 +100,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 | 1.15 | 2.3e-5% | 0/64 | 2.3e-5% | 8.4e-5% |
 | 3 | 8.8e-5% | 0/64 | 8.8e-5% | 4.2e-4% |
 | 10 | 0.0030% | 0/64 | 0.0030% | 0.016% |
-| 30 | 0.11% | 43/64 | 0.21% | 1.6% |
+| 30 | 0.11% | 60/64 | 0.015% | 0.025% |
 | 100 | 38% | 64/64 | — | — |
 | 200 | >100% | 64/64 | — | — |
 
@@ -111,7 +111,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 | 1.15 | 2.3e-5% | 0/64 | 2.3e-5% | 8.4e-5% |
 | 3 | 8.8e-5% | 0/64 | 8.8e-5% | 4.2e-4% |
 | 10 | 0.0030% | 0/64 | 0.0030% | 0.016% |
-| 30 | 0.11% | 43/64 | 0.21% | 1.6% |
+| 30 | 0.11% | 60/64 | 0.015% | 0.025% |
 | 100 | 95% | 64/64 | — | — |
 | 200 | >100% | 64/64 | — | — |
 
@@ -120,7 +120,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 | R | error | flagged | unflagged L2 | unflagged max |
 |---|---|---|---|---|
 | 1.15 | 0.0063% | 0/64 | 0.0063% | 0.036% |
-| 3 | 0.61% | 0/64 | 0.61% | 0.81% |
+| 3 | 0.61% | 1/64 | 0.37% | 0.68% |
 | 10 | 2.9% | 64/64 | — | — |
 | 30 | >100% | 64/64 | — | — |
 | 100 | >100% | 64/64 | — | — |
@@ -131,7 +131,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 | R | error | flagged | unflagged L2 | unflagged max |
 |---|---|---|---|---|
 | 1.15 | 0.0063% | 0/64 | 0.0063% | 0.036% |
-| 3 | 0.61% | 0/64 | 0.61% | 0.81% |
+| 3 | 0.61% | 1/64 | 0.37% | 0.68% |
 | 10 | 2.7% | 64/64 | — | — |
 | 30 | >100% | 64/64 | — | — |
 | 100 | >100% | 64/64 | — | — |
@@ -143,7 +143,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 |---|---|---|---|---|
 | 1.15 | 0.0015% | 0/64 | 0.0015% | 0.0022% |
 | 3 | 0.011% | 0/64 | 0.011% | 0.018% |
-| 10 | 0.20% | 26/64 | 0.15% | 0.34% |
+| 10 | 0.20% | 29/64 | 0.063% | 0.094% |
 | 30 | 31% | 64/64 | — | — |
 | 100 | >100% | 64/64 | — | — |
 | 200 | >100% | 64/64 | — | — |
@@ -154,7 +154,7 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 |---|---|---|---|---|
 | 1.15 | 0.0015% | 0/64 | 0.0015% | 0.0022% |
 | 3 | 0.011% | 0/64 | 0.011% | 0.018% |
-| 10 | 0.20% | 26/64 | 0.15% | 0.34% |
+| 10 | 0.20% | 29/64 | 0.063% | 0.094% |
 | 30 | 36% | 64/64 | — | — |
 | 100 | >100% | 64/64 | — | — |
 | 200 | >100% | 64/64 | — | — |
@@ -202,7 +202,17 @@ Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit
 | 2048 | 500 | 577 | 25% | outside history |
 | 2048 | 800 | 924 | 62% | outside history |
 
-Across all far-field and straight-line cases, the worst error at any single observer the indicator does not mark is 1.6%.
+Across all far-field and straight-line cases, the worst error at any single observer the indicator does not mark is 0.68%.
+
+**Dragged (live) histories.** The indicator also has acceleration terms for user-driven motion. The first is a jump in the stored acceleration, seen as the largest second difference over the Catmull–Rom support; the cubic smooths such a jump across its light sphere. The second is stored acceleration that is inconsistent with the change of stored velocity across the segment. Each is converted to an estimated radiation-field error relative to the source's own field. Below β = 0.2 the bend term's 1/β² is floored, because it flagged charges at rest. The measurements below come from the app's drag rules (velocity relaxing toward the pointer, |Δβ| per step limited, acceleration derived from the actual velocity change) on a pointer path with jumps, holds, rapid reversals and a fast circle: 3 snapshots, 96 × 96 observers over [−3, 3]², exact field from the recorded history. *Recall* is the share of observers with error > 1% that the mask flags; tuning scripts are in em-sim-3/swarm/work/qacc.
+
+| M | observers with error > 1% | recall before | recall now | flagged before → now |
+|---|---|---|---|---|
+| 128 | 24% | 35% | 99% | 23% → 56% |
+| 512 | 4.8% | 0% | 96% | 2.6% → 12% |
+| 2048 | 0.4% | 0% | 99% | 0.5% → 8.8% |
+
+With the mask on, the 99th-percentile error of unflagged observers on these histories is below 1% at every M (0.9%, 0.4%, 0.05%). On smooth presets (orbits up to γ = 70.7, the precessing-ellipse ensemble, oscillators) the new terms add at most 0.5% flagged observers. Accurate observers near a charge at rest are no longer flagged (35% → 11% at M = 128, 24% → 0% at M = 512). The field values themselves are unchanged; only the indicator is.
 
 ## 4. When does the causality limiter matter?
 
@@ -210,15 +220,15 @@ Hyperbolic motion (constant proper acceleration from rest), observers just ahead
 
 | proper accel. | acceleration time | M | limiter | error | worst point | flagged | peak \|z′\| (at R) | γ now |
 |---|---|---|---|---|---|---|---|---|
-| 0.5 | 60 | 128 | 2 | 9.8e-4% | 0.25% | 10/128 | 0.9969 (0.0) | 12.8 |
-| 0.5 | 60 | 128 | 0 | 9.8e-4% | 0.25% | 10/128 | 0.9969 (0.0) | 12.8 |
-| 0.5 | 60 | 128 | 1 | 9.8e-4% | 0.25% | 10/128 | 0.9969 (0.0) | 12.8 |
+| 0.5 | 60 | 128 | 2 | 9.8e-4% | 0.25% | 34/128 | 0.9969 (0.0) | 12.8 |
+| 0.5 | 60 | 128 | 0 | 9.8e-4% | 0.25% | 34/128 | 0.9969 (0.0) | 12.8 |
+| 0.5 | 60 | 128 | 1 | 9.8e-4% | 0.25% | 34/128 | 0.9969 (0.0) | 12.8 |
 | 0.5 | 60 | 512 | 2 | 3.7e-5% | 8.7e-4% | 0/128 | 0.9969 (0.0) | 12.8 |
 | 0.5 | 60 | 512 | 0 | 3.7e-5% | 8.7e-4% | 0/128 | 0.9969 (0.0) | 12.8 |
 | 0.5 | 60 | 512 | 1 | 3.7e-5% | 8.7e-4% | 0/128 | 0.9969 (0.0) | 12.8 |
-| 0.25 | 100 | 128 | 2 | 9.0e-5% | 0.0024% | 0/128 | 1.0573 (73.3) | 10.7 |
-| 0.25 | 100 | 128 | 0 | 9.0e-5% | 0.0024% | 0/128 | 1.0573 (73.3) | 10.7 |
-| 0.25 | 100 | 128 | 1 | 9.0e-5% | 0.0024% | 0/128 | 1.0573 (73.3) | 10.7 |
+| 0.25 | 100 | 128 | 2 | 9.0e-5% | 0.0024% | 8/128 | 1.0573 (73.3) | 10.7 |
+| 0.25 | 100 | 128 | 0 | 9.0e-5% | 0.0024% | 8/128 | 1.0573 (73.3) | 10.7 |
+| 0.25 | 100 | 128 | 1 | 9.0e-5% | 0.0024% | 8/128 | 1.0573 (73.3) | 10.7 |
 | 0.25 | 100 | 512 | 2 | 3.3e-5% | 3.5e-4% | 0/128 | 0.9956 (0.0) | 10.7 |
 | 0.25 | 100 | 512 | 0 | 3.3e-5% | 3.5e-4% | 0/128 | 0.9956 (0.0) | 10.7 |
 | 0.25 | 100 | 512 | 1 | 3.3e-5% | 3.5e-4% | 0/128 | 0.9956 (0.0) | 10.7 |

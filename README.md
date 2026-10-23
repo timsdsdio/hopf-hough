@@ -47,7 +47,7 @@ Relative L2 error of GPU readback against the exact field (no softening), on 256
 † γ ≈ 224 uses double-precision observer coordinates (float32 coordinates cannot resolve the pulse there).
 <!-- /ACCURACY_TABLE -->
 
-The app hatches pixels where the answer should not be trusted: outside the stored history (red), or where the history is too coarse for the local motion (amber). In the far-field tests, no observer the flag leaves unmarked is more than 1.6% from the exact field. See [docs/ACCURACY.md](docs/ACCURACY.md) for the far-field envelope and how well that flag predicts the error.
+The app hatches pixels where the answer should not be trusted: outside the stored history (red), or where the history is too coarse for the local motion (amber). In the far-field tests, no observer the flag leaves unmarked is more than 0.68% from the exact field (1.6% in preprint v6, before the acceleration terms below). For dragged sources the flag also watches the acceleration history: it now marks 96–99% of the pixels whose error exceeds 1% after sudden starts, stops and reversals (previously 0–35%), and adds at most 0.5% marked pixels on smooth presets. See [docs/ACCURACY.md](docs/ACCURACY.md) for the far-field envelope, the drag measurements, and how well the flag predicts the error.
 
 ## Using the app
 

@@ -2125,12 +2125,30 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
     // Resolution indicator (heuristic, calibrated against the reference in results/):
     //  - bending: shell spacing x gamma over the local radius of curvature;
     //  - speeding up/slowing down: relative change of proper velocity across the segment.
-    float b2 = max(1e-12, g.bMag * g.bMag);
+    // The bend term's 1/beta^2 is floored at beta = 0.2: below that the radius of curvature is
+    // irrelevant to the field (the velocity field dominates), and the bare 1/beta^2 flagged charges at rest.
+    float b2 = max(0.04, g.bMag * g.bMag);
     float aPerp = abs(g.bHat.x * g.acc.y - g.bHat.y * g.acc.x);
     float gam = inversesqrt(max(1e-12, g.omb2));
     float qBend = g.dR * gam * aPerp / b2;
     float qSpeed = 6.0 * g.duRel;
     float q = max(qBend, qSpeed);
+    //  - acceleration (live/dragged histories): (i) a jump in the stored acceleration, seen as the
+    //    largest second difference over the Catmull-Rom support, which the cubic smooths across the
+    //    jump's light sphere; (ii) stored acceleration inconsistent with the change of stored velocity
+    //    across the segment (d beta/dR = -a/c^2). Each is turned into an estimated radiation-field error
+    //    |delta a| (|u| + kappa) / (kappa^3 r), relative to this source's field; 0.2 maps to q = 1.5.
+    //    Tuned on dragged histories (tests/gpu/drag_mask.mjs): >= 94% recall of 1% errors at M = 128-2048,
+    //    <= 0.1% extra flags on smooth presets.
+    if (cS.hasNext) {
+      float cRad = (length(u) + kappa) / (kappa3 * rSoft);
+      float d2A = max(length(cS.acc0 - 2.0 * cS.acc1 + cS.acc2), length(cS.acc1 - 2.0 * cS.acc2 + cS.acc3));
+      vec2 bK1 = unpackKnotBeta(cS.u1);
+      vec2 bK2 = unpackKnotBeta(cS.u2);
+      float dAcons = length((bK2 - bK1) / cS.dR + 0.5 * (cS.acc1 + cS.acc2));
+      float qAcc = 7.5 * cRad * max(d2A, dAcons) / max(length(eS), 1e-30);
+      q = max(q, qAcc);
+    }
     if (mRet < 1.0) q = max(q, 1.6);   // inside the first shell: too close to the charge to trust
     // Shells the Nyquist taper has damped no longer carry the true acceleration: flag them.
     if (u_taperOn == 1 && u_scaleL > 0.0) {

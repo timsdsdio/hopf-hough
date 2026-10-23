@@ -3,8 +3,10 @@
 //  2. Production shader meets accuracy thresholds against the exact reference.
 //  3. The single-file app loads without errors or external requests.
 //  4. The author's app (web/index.html, site root): v5 kernel bit-identical to the original, v6 kernel accuracy.
+//  5. Validity indicator on dragged histories (acceleration terms) and on smooth / near-rest motion.
 import { launch } from './browser.mjs';
 import { runWebAppChecks } from './web_app.mjs';
+import { runDragMaskChecks } from './drag_mask.mjs';
 import { readFileSync } from 'node:fs';
 const root = new URL('../../', import.meta.url).pathname;
 const bundle = readFileSync(root + 'dist/hopf-hough.iife.js', 'utf8');
@@ -66,5 +68,7 @@ try {
 
 // 4. The author's app with the v6 kernel.
 if (!(await runWebAppChecks((line) => console.log(line.replace(/^ok   /, 'ok   ').replace(/^FAIL /, 'FAIL '))))) failures++;
+// 5. Validity mask on live (dragged) histories.
+if (!(await runDragMaskChecks((line) => console.log(line)))) failures++;
 console.log(failures ? `\n${failures} check(s) failed` : '\nall GPU checks passed');
 process.exit(failures ? 1 : 0);
