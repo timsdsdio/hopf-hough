@@ -49,12 +49,22 @@ vec2 dfSqrt(vec2 A) { if (A.x <= 0.0) return vec2(0.0); float x = 1.0 / sqrt(A.x
 // Same algorithms with bit-exact splitting (masking the low mantissa bits) so products are exact even with FMA contraction.
 const MASKSPLIT = GENERIC.replace(/vec2 splitF[^\n]*\n/, 'vec2 splitF(float a) { float hi = uintBitsToFloat(floatBitsToUint(a) & 0xFFFFF000u); hi = BAR(hi); return vec2(hi, a - hi); }\n');
 
+// The production code before October 2026 (guard on some operations only).
+const PREVIOUS = `
+vec2 twoSum(float a, float b) { float s = (a + b) * u_one; float bb = (s - a) * u_one; float e = (a - (s - bb) * u_one) + (b - bb); return vec2(s, e); }
+vec2 quickTwoSum(float a, float b) { float s = (a + b) * u_one; return vec2(s, b - (s - a) * u_one); }
+vec2 splitF(float a) { float t = (4097.0 * a) * u_one; float hi = t - (t - a) * u_one; return vec2(hi, a - hi); }
+vec2 twoProd(float a, float b) { float p = (a * b) * u_one; vec2 A = splitF(a); vec2 B = splitF(b); float e = ((A.x * B.x - p) + A.x * B.y + A.y * B.x) + A.y * B.y; return vec2(p, e); }
+vec2 dfAdd(vec2 A, vec2 B) { vec2 s = twoSum(A.x, B.x); vec2 t = twoSum(A.y, B.y); s.y += t.x; s = quickTwoSum(s.x, s.y); s.y += t.y; return quickTwoSum(s.x, s.y); }
+vec2 dfMul(vec2 A, vec2 B) { vec2 p = twoProd(A.x, B.x); p.y += A.x * B.y + A.y * B.x; return quickTwoSum(p.x, p.y); }
+vec2 dfSqrt(vec2 A) { if (A.x <= 0.0) return vec2(0.0); float x = 1.0 / sqrt(A.x); float y = A.x * x; vec2 yy = twoProd(y, y); vec2 d = dfAdd(A, -yy); return quickTwoSum(y, d.x * x * 0.5); }`;
+
 const VARIANTS = {
   shipped: null, // filled from the library's production shader
+  'previous release': PREVIOUS,
   'no guard': '#define BAR(x) (x)\n' + GENERIC,
-  'uniform ×1': '#define BAR(x) ((x) * u_one)\n' + GENERIC,
-  'bit barrier': 'float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }\n' + GENERIC,
-  'bit barrier + mask split': 'float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }\n' + MASKSPLIT,
+  'partial bit barrier': 'float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }\n' + MASKSPLIT,
+  'full ×1 guard': null, // shipped code with BAR = multiply by a uniform 1.0
 };
 
 const TESTS = ['twoSum', 'twoProd', 'dfAdd', 'dfMul', 'dfSqrt', 'chain'];
@@ -135,6 +145,7 @@ document.getElementById('go').onclick = async () => {
   const m = H_.FRAGMENT_SHADER.match(/\/\/ -+ double-float[^\n]*\n([\s\S]*?)\/\/ -+ shell history/);
   if (!m) throw new Error('could not find the double-float block in the production shader');
   VARIANTS.shipped = m[1];
+  VARIANTS['full ×1 guard'] = m[1].replace(/float BAR\(float x\) \{[^}]*\}/, 'float BAR(float x) { return x * u_one; }');
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
   const gl = canvas.getContext('webgl2');
   if (!gl) throw new Error('WebGL2 is not available');

@@ -6,7 +6,7 @@
  *
  * Switches (uniforms), each verified separately against the legacy behaviour:
  *  - u_precision: 0 = float32 root function (legacy), 1 = double-float root function
- *    with hi/lo knot positions (error-free transforms; protected from reassociation by u_one).
+ *    with hi/lo knot positions (error-free transforms; every step guarded against reassociation by BAR).
  *  - u_certMode: 0 = Theorem 1 control-vector limiter (legacy), 1 = |z'|² Bernstein-coefficient
  *    certificate (sharper, never stricter), 2 = no limiter.
  *  - u_rootMode: 0 = legacy bisection on the spline + 2 clamped Newton steps,
@@ -45,7 +45,8 @@ uniform float u_betaMax;
 uniform float u_c;
 uniform float u_softEps;
 uniform float u_scaleL;
-uniform float u_one;                // must be 1.0; blocks algebraic simplification of error-free transforms
+uniform float u_one;                // 1.0 (kept for compatibility)
+uniform uint u_zero;                // must be 0u; operand of BAR(), which blocks reassociation of error-free transforms
 uniform float u_time;
 uniform float u_aspect;
 uniform vec2 u_viewCenter;
@@ -62,49 +63,57 @@ uniform float u_ringReach;          // depth of the stored history, c·dt·(ring
 
 const float PI = 3.14159265359;
 
-// ---------------- double-float arithmetic (pairs of float32, no FMA) ----------------
+// ---------------- double-float arithmetic (pairs of float32) ----------------
+// Every rounding step goes through BAR(), an identity the compiler cannot see through
+// (XOR with a uniform that is 0). Some compilers (Apple's Metal, via ANGLE) reassociate
+// float expressions; a guard on only some operations is not enough, because an unguarded
+// sum such as (a - x) + (b - y) can be regrouped as (a + b) - (x + y), which loses the very
+// bits the error-free transform recovers. Splitting uses bit masking, so the partial
+// products are exact whether or not the compiler fuses multiply-adds.
+float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }
+float ADD(float a, float b) { return BAR(a + b); }
+float SUB(float a, float b) { return BAR(a - b); }
+float MUL(float a, float b) { return BAR(a * b); }
 vec2 twoSum(float a, float b) {
-  float s = (a + b) * u_one;
-  float bb = (s - a) * u_one;
-  float e = (a - (s - bb) * u_one) + (b - bb);
-  return vec2(s, e);
+  float s = ADD(a, b);
+  float bb = SUB(s, a);
+  return vec2(s, ADD(SUB(a, SUB(s, bb)), SUB(b, bb)));
 }
 vec2 quickTwoSum(float a, float b) {
-  float s = (a + b) * u_one;
-  return vec2(s, b - (s - a) * u_one);
+  float s = ADD(a, b);
+  return vec2(s, SUB(b, SUB(s, a)));
 }
 vec2 splitF(float a) {
-  float t = (4097.0 * a) * u_one;
-  float hi = t - (t - a) * u_one;
-  return vec2(hi, a - hi);
+  float hi = BAR(uintBitsToFloat(floatBitsToUint(a) & 0xFFFFF000u));
+  return vec2(hi, SUB(a, hi));
 }
 vec2 twoProd(float a, float b) {
-  float p = (a * b) * u_one;
+  float p = MUL(a, b);
   vec2 A = splitF(a);
   vec2 B = splitF(b);
-  float e = ((A.x * B.x - p) + A.x * B.y + A.y * B.x) + A.y * B.y;
+  float e = ADD(ADD(ADD(SUB(MUL(A.x, B.x), p), MUL(A.x, B.y)), MUL(A.y, B.x)), MUL(A.y, B.y));
   return vec2(p, e);
 }
 vec2 dfAdd(vec2 A, vec2 B) {
   vec2 s = twoSum(A.x, B.x);
   vec2 t = twoSum(A.y, B.y);
-  s.y += t.x;
+  s.y = ADD(s.y, t.x);
   s = quickTwoSum(s.x, s.y);
-  s.y += t.y;
+  s.y = ADD(s.y, t.y);
   return quickTwoSum(s.x, s.y);
 }
 vec2 dfMul(vec2 A, vec2 B) {
   vec2 p = twoProd(A.x, B.x);
-  p.y += A.x * B.y + A.y * B.x;
+  p.y = ADD(p.y, ADD(MUL(A.x, B.y), MUL(A.y, B.x)));
   return quickTwoSum(p.x, p.y);
 }
 vec2 dfSqrt(vec2 A) {
   if (A.x <= 0.0) return vec2(0.0);
   float x = 1.0 / sqrt(A.x);
-  float y = A.x * x;
+  float y = MUL(A.x, x);
   vec2 yy = twoProd(y, y);
   vec2 d = dfAdd(A, -yy);
-  return quickTwoSum(y, d.x * x * 0.5);
+  return quickTwoSum(y, MUL(MUL(d.x, x), 0.5));
 }
 
 // ---------------- shell history access ----------------

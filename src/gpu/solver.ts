@@ -89,7 +89,7 @@ export class GpuSolver {
     this.set('u_texPosVel', 0);
     this.set('u_texAccChg', 1);
     this.set('u_texQueryCoords', 2);
-    if (shaders.production) { this.set('u_texPosLo', 4); this.setFloat('u_one', 1.0); }
+    if (shaders.production) { this.set('u_texPosLo', 4); this.setFloat('u_one', 1.0); this.setUint('u_zero', 0); }
   }
 
   private link(src: ShaderSources): WebGLProgram {
@@ -134,6 +134,13 @@ export class GpuSolver {
   }
 
   setFloat(name: string, value: number): void { this.set(name, value, true); }
+
+  setUint(name: string, value: number): void {
+    const gl = this.gl;
+    let loc = this.uniformCache.get(name);
+    if (loc === undefined) { loc = gl.getUniformLocation(this.program, name); this.uniformCache.set(name, loc); }
+    if (loc !== null) gl.uniform1ui(loc, value);
+  }
 
   /** Upload shell histories (one texture row per source). */
   upload(histories: readonly ShellHistory[], M: number): void {
@@ -187,6 +194,7 @@ export class GpuSolver {
       this.set('u_precision', cfg.precision);
       this.setFloat('u_betaMax', cfg.betaMax);
       this.setFloat('u_one', 1.0);
+      this.setUint('u_zero', 0);
       this.set('u_taperOn', cfg.prefilter && cfg.gridMode === 'compactified');
       this.setFloat('u_omega', cfg.omega);
       this.setFloat('u_ringReach', cfg.c * cfg.dt * (cfg.ringSize - 4));
