@@ -19,7 +19,7 @@ const sci = (v: number) => (v === 0 ? '0' : v.toExponential(2));
 type Scenario = 'orbit' | 'ensemble' | 'oscillator' | 'linear' | 'hyperbolic' | 'custom' | 'csv';
 
 const C = DEFAULT_CONFIG.c;
-const cfg: SolverConfig = { ...DEFAULT_CONFIG, mT: 512, kBin: 11, softEps: 0.02, prefilter: false };
+const cfg: SolverConfig = { ...DEFAULT_CONFIG, mT: 128, kBin: 9, softEps: 0.02, prefilter: false };
 const ui = {
   scenario: 'ensemble' as Scenario,
   beta: 0.8,
@@ -171,7 +171,7 @@ let W = 1, H = 1, dpr = 1;
 
 function resize() {
   const r = overlay.getBoundingClientRect();
-  dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  dpr = 1; // CSS-pixel resolution, as in the original app (rendering at device resolution costs 2–4× per frame)
   W = Math.max(1, Math.round(r.width * dpr));
   H = Math.max(1, Math.round(r.height * dpr));
   if (glCanvas.width !== W || glCanvas.height !== H) { glCanvas.width = W; glCanvas.height = H; }
@@ -590,7 +590,7 @@ let frames = 0, fpsT = performance.now(), probeT = 0;
 function frame(now: number) {
   resize();
   if (!ui.paused) {
-    const sub = 5;
+    const sub = 1;
     for (let k = 0; k < sub; k++) sim.step(cfg.dt, k < sub - 1);
     if (reseedPeriod > 0) {
       reseedClock += sub * cfg.dt;
