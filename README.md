@@ -6,8 +6,8 @@ hopf-hough computes the electric field **E** (and the out-of-plane magnetic fiel
 
 It adds no new physics. It is a fast, verifiable way to look at, and export, near-field and radiation-zone structure — for example how a synchrotron pulse forms — and to see how accurate the numbers are.
 
-- **Live app:** https://timsdsdio.github.io/hopf-hough/ (the author's original single-file solver, `web/index.html`)
-- **TypeScript build (v6 kernel):** https://timsdsdio.github.io/hopf-hough/v6/ (or open `dist/hopf-hough.html` after building)
+- **Live app:** https://timsdsdio.github.io/hopf-hough/ — the author's single-file app (`web/index.html`) running the v6 kernel by default; the **Kernel** button switches to the original v5 kernel (bit-identical to the pre-port file, kept as `reference/web_original.html`), and **Validity Mask** hatches untrusted pixels.
+- **TypeScript build:** https://timsdsdio.github.io/hopf-hough/v6/ — the library's own app with the verification suite, CSV export and URL parameters (or open `dist/hopf-hough.html` after building).
 - **Preprint:** T. Huff, *A Causality-Preserving, Stereographically Compactified Worldline Representation for Retarded Liénard–Wiechert Electrodynamics*, Zenodo (2026), [doi:10.5281/zenodo.23581323](https://doi.org/10.5281/zenodo.23581323)
 
 ## What it computes
@@ -51,7 +51,7 @@ The app hatches pixels where the answer should not be trusted: outside the store
 
 ## Using the app
 
-Open the app, pick a scenario, and drag in the field to move the first charge (or switch to pan mode; the wheel zooms). The probe panel compares the GPU value at the green ring with an independent double-precision evaluation; **Check accuracy now** does the same on 64 nearby points. **Run verification suite** reproduces the accuracy table on your hardware; **Export field (CSV)** writes x, y, Ex, Ey, B_z and the validity flag for the current view.
+This section describes the TypeScript build (`/v6/`). Open it, pick a scenario, and drag in the field to move the first charge (or switch to pan mode; the wheel zooms). The probe panel compares the GPU value at the green ring with an independent double-precision evaluation; **Check accuracy now** does the same on 64 nearby points. **Run verification suite** reproduces the accuracy table on your hardware; **Export field (CSV)** writes x, y, Ex, Ey, B_z and the validity flag for the current view.
 
 Scenarios: circular orbit, an ensemble of precessing ellipses, harmonic oscillator, straight-line motion, hyperbolic motion, your own `x(t)`, `y(t)` expressions, or uploaded `t,x,y` samples. Superluminal input is refused.
 
@@ -86,7 +86,7 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 
 - **Independent code:** with softening off, a Python port of the double-precision reference agrees with [PyCharge](https://github.com/MatthewFilipovich/pycharge) 2.0.1 to ~1e-11 for circular, oscillating and straight-line motion up to γ = 7.1 ([validation/pycharge](validation/pycharge/REPORT.md)).
 - **Regression:** the original single-file solver from the preprint is kept in [reference/](reference/); the port reproduces its verification suite exactly (154 of 154 values), and the CI checks this on every change.
-- **Tests:** `npm test` (unit tests: trajectories, regression) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test).
+- **Tests:** `npm test` (unit tests: trajectories, regression) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test, and for `web/index.html`: v5 kernel bit-identical to the original file in `reference/web_original.html`, v6 kernel pulse-sweep accuracy).
 
 ## Compared with PyCharge
 

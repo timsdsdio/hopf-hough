@@ -2,7 +2,9 @@
 //  1. Legacy shader reproduces the original solver's published suite exactly.
 //  2. Production shader meets accuracy thresholds against the exact reference.
 //  3. The single-file app loads without errors or external requests.
+//  4. The author's app (web/index.html, site root): v5 kernel bit-identical to the original, v6 kernel accuracy.
 import { launch } from './browser.mjs';
+import { runWebAppChecks } from './web_app.mjs';
 import { readFileSync } from 'node:fs';
 const root = new URL('../../', import.meta.url).pathname;
 const bundle = readFileSync(root + 'dist/hopf-hough.iife.js', 'utf8');
@@ -60,5 +62,8 @@ try {
 } finally {
   await browser.close();
 }
+
+// 4. The author's app with the v6 kernel.
+if (!(await runWebAppChecks((line) => console.log(line.replace(/^ok   /, 'ok   ').replace(/^FAIL /, 'FAIL '))))) failures++;
 console.log(failures ? `\n${failures} check(s) failed` : '\nall GPU checks passed');
 process.exit(failures ? 1 : 0);
