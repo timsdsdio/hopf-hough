@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hopf-hough · Liénard–Wiechert field solver</title>
+<meta name="description" content="Exact retarded Liénard–Wiechert fields of moving point charges, evaluated per pixel on the GPU, with a built-in double-precision accuracy check.">
+<style>/*__CSS__*/</style>
+</head>
+<body class="min-h-screen flex flex-col antialiased bg-ink-950 text-slate-200">
+<header class="border-b border-slate-800/80 bg-ink-900/90 sticky top-0 z-30 px-3 py-2">
+  <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center font-mono font-bold text-white text-xs">LW</div>
+      <div>
+        <h1 class="text-sm font-semibold tracking-tight text-white">hopf-hough <span class="font-normal text-slate-400">· exact retarded Liénard–Wiechert fields on the GPU</span></h1>
+        <div id="units-line" class="text-[10px] font-mono text-slate-500">3D point charges moving in the plane, field in the plane · c = 2.35 length units per time unit</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2.5 text-[11px] font-mono bg-ink-950/90 px-2.5 py-1 rounded-lg border border-slate-800">
+      <div><span class="text-slate-500">β</span> <span id="stat-beta" class="text-sky-400 font-semibold">—</span></div>
+      <div class="h-3 w-px bg-slate-800"></div>
+      <div><span class="text-slate-500">γ</span> <span id="stat-gamma" class="text-amber-400 font-semibold">—</span></div>
+      <div class="h-3 w-px bg-slate-800"></div>
+      <div><span class="text-slate-500">frame</span> <span id="stat-fps" class="text-emerald-400 font-semibold">—</span></div>
+      <div class="h-3 w-px bg-slate-800"></div>
+      <div title="Relative L2 error of the GPU field against the double-precision reference, on 64 points around the probe. Computed on demand."><span class="text-slate-500">check</span> <span id="stat-check" class="text-slate-300 font-semibold">not run</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-3 grid grid-cols-1 lg:grid-cols-12 gap-3">
+  <section class="lg:col-span-8 flex flex-col gap-3">
+    <div class="rounded-xl border border-slate-800 bg-ink-900/60 overflow-hidden flex flex-col">
+      <div class="flex flex-wrap items-center justify-between px-3 py-2 border-b border-slate-800/80 text-xs gap-1.5">
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-slate-200">Field</span>
+          <select id="sel-channel" class="ctl">
+            <option value="0">|E| (hue = direction)</option>
+            <option value="1">E radiation term</option>
+            <option value="2">E velocity term</option>
+            <option value="3">B_z (signed)</option>
+            <option value="4">|S| Poynting magnitude</option>
+          </select>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <label class="tog"><input type="checkbox" id="chk-wavefronts" checked> wavefronts</label>
+          <label class="tog"><input type="checkbox" id="chk-mask" checked> validity mask</label>
+          <label class="tog" title="Shaded spheres are decoration, not physics"><input type="checkbox" id="chk-impostors"> decorative spheres</label>
+          <button id="btn-pan-mode" class="btn">Mode: drag source</button>
+          <button id="btn-reset-view" class="btn">Reset view</button>
+        </div>
+      </div>
+      <div class="relative w-full aspect-[4/3] sm:aspect-[16/10] bg-ink-950" id="viewport">
+        <canvas id="glCanvas" class="absolute inset-0 w-full h-full block"></canvas>
+        <canvas id="overlay" class="absolute inset-0 w-full h-full block touch-none cursor-crosshair"></canvas>
+        <div id="gl-error" class="hidden absolute inset-0 flex items-center justify-center text-rose-300 text-sm p-6 text-center"></div>
+      </div>
+      <div class="flex items-center gap-3 px-3 py-1.5 border-t border-slate-800/80 text-[10px] font-mono text-slate-400">
+        <span id="colorbar-label" class="whitespace-nowrap">|E|</span>
+        <canvas id="colorbar" class="h-3 flex-1 rounded"></canvas>
+        <span id="colorbar-max" class="whitespace-nowrap">—</span>
+      </div>
+      <div class="bg-ink-950 border-t border-slate-800/90 p-2.5 text-xs font-mono">
+        <div class="flex flex-wrap items-center justify-between pb-1.5 mb-2 border-b border-slate-800/80 gap-1">
+          <span class="font-sans text-slate-300">Probe at <span id="probe-pos" class="text-emerald-400">—</span> · drag the green ring to move it</span>
+          <button id="btn-check" class="btn">Check accuracy now</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[10px]">
+          <div class="panel border-sky-500/20"><div class="text-sky-400 font-semibold">GPU (float32 + double-float root)</div><div id="probe-gpu" class="mt-0.5">—</div></div>
+          <div class="panel border-emerald-500/20"><div class="text-emerald-400 font-semibold" id="probe-ref-title">Reference (float64, analytic trajectory)</div><div id="probe-ref" class="mt-0.5">—</div></div>
+          <div class="panel border-fuchsia-500/20"><div class="text-fuchsia-400 font-semibold">Difference · resolution</div><div id="probe-err" class="mt-0.5">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-ink-900/60 overflow-hidden">
+      <div class="px-3 py-2 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span class="font-medium text-slate-200">Verification, benchmark and export</span>
+        <div class="flex flex-wrap gap-1.5">
+          <button id="btn-suite" class="btn-primary">Run verification suite</button>
+          <button id="btn-bench" class="btn">Benchmark</button>
+          <button id="btn-export" class="btn">Export field (CSV)</button>
+          <button id="btn-export-json" class="btn hidden">Download suite JSON</button>
+        </div>
+      </div>
+      <div id="report" class="p-3 text-[11px] font-mono text-slate-300 overflow-x-auto max-h-96 overflow-y-auto">
+        The suite compares GPU readback with the double-precision reference on a pulse-crossing sweep and an azimuthal ring.
+        It takes a while in software rendering; on a real GPU it takes a few seconds.
+      </div>
+    </div>
+  </section>
+
+  <aside class="lg:col-span-4 flex flex-col gap-3 text-xs">
+    <div class="card">
+      <div class="card-title">Scenario</div>
+      <select id="sel-scenario" class="ctl w-full">
+        <option value="orbit">Circular orbit (synchrotron)</option>
+        <option value="ensemble" selected>Ensemble of precessing ellipses</option>
+        <option value="oscillator">Harmonic oscillator (dipole antenna)</option>
+        <option value="linear">Uniform straight-line motion</option>
+        <option value="hyperbolic">Hyperbolic motion (constant proper acceleration)</option>
+        <option value="custom">Custom: x(t), y(t) expressions</option>
+        <option value="csv">Custom: upload t,x,y samples (CSV)</option>
+      </select>
+      <div id="custom-box" class="hidden mt-2 flex flex-col gap-1.5">
+        <label class="lbl">x(t) <input id="in-x" class="ctl w-full font-mono" value="0.8*cos(2.2*t)"></label>
+        <label class="lbl">y(t) <input id="in-y" class="ctl w-full font-mono" value="0.45*sin(4.4*t)"></label>
+        <div class="text-[10px] text-slate-500">JavaScript expressions in t; Math functions without the "Math." prefix. Velocity must stay below c.</div>
+        <button id="btn-apply-custom" class="btn">Apply</button>
+      </div>
+      <div id="csv-box" class="hidden mt-2 flex flex-col gap-1.5">
+        <input id="in-csv" type="file" accept=".csv,.txt" class="text-[10px]">
+        <div class="text-[10px] text-slate-500">Columns t, x, y (header optional). Interpolated with a natural cubic spline; must cover the lookback window ending at the current time, and stay below c.</div>
+      </div>
+      <div id="scenario-error" class="hidden mt-2 text-rose-300 text-[11px]"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex justify-between"><span class="text-slate-300">Speed β</span><span id="val-beta" class="font-mono text-sky-400">—</span></div>
+      <input id="slider-beta" type="range" min="0" max="1000" step="1" value="600" class="w-full">
+      <div class="flex justify-between text-[10px] font-mono text-slate-500"><span>0.05</span><span>0.9</span><span>0.99</span><span>0.9999</span></div>
+      <div id="beta-note" class="text-[10px] text-amber-300/80 mt-1"></div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2">
+      <div class="card"><div class="flex justify-between"><span>Sources N</span><span id="val-n" class="font-mono text-emerald-400">16</span></div><input id="slider-n" type="range" min="1" max="256" value="16" class="w-full"></div>
+      <div class="card"><div class="flex justify-between"><span>Frequency ω</span><span id="val-omega" class="font-mono text-fuchsia-400">1.6</span></div><input id="slider-omega" type="range" min="0.6" max="3.4" step="0.1" value="1.6" class="w-full"></div>
+      <div class="card"><div class="flex justify-between"><span>Grid scale L</span><span id="val-L" class="font-mono text-sky-400">1.35</span></div><input id="slider-L" type="range" min="0.4" max="2.6" step="0.05" value="1.35" class="w-full"></div>
+      <div class="card" title="Plummer softening: replaces R² by R²+ε² near each charge. 0 = exact Liénard–Wiechert."><div class="flex justify-between"><span>Softening ε</span><span id="val-eps" class="font-mono text-amber-400">0.02</span></div><input id="slider-eps" type="range" min="0" max="0.2" step="0.005" value="0.02" class="w-full"></div>
+    </div>
+
+    <div class="card flex flex-col gap-2">
+      <div class="card-title">Solver</div>
+      <label class="row">History shells M_T
+        <select id="sel-mt" class="ctl"><option>128</option><option selected>512</option><option>1024</option><option>2048</option></select></label>
+      <label class="row">Root-function precision
+        <select id="sel-precision" class="ctl"><option value="1" selected>double-float</option><option value="0">float32 (legacy)</option></select></label>
+      <label class="row">Causality limiter
+        <select id="sel-cert" class="ctl"><option value="1" selected>|z′|² certificate</option><option value="0">Theorem 1 (legacy)</option><option value="2">off</option></select></label>
+      <label class="row">Root search
+        <select id="sel-root" class="ctl"><option value="1" selected>knots + Newton</option><option value="0">spline bisection (legacy)</option></select></label>
+      <label class="row" title="Damps the radiation term on shells too coarse to resolve the orbital period (beyond the Nyquist radius). Off = no damping; the validity mask still flags the region.">Nyquist taper
+        <input type="checkbox" id="chk-taper"></label>
+      <div id="domain-note" class="text-[10px] text-slate-500 font-mono"></div>
+    </div>
+
+    <div class="card text-[10px] text-slate-400 leading-relaxed">
+      <div class="card-title">What you are looking at</div>
+      Each pixel solves for every charge's retarded time on a compact history, then evaluates the Liénard–Wiechert field exactly from the
+      interpolated history. Hatched pixels are outside the stored history (red) or where the history is too coarse for the local curvature
+      (amber). The probe compares the GPU against an independent double-precision evaluation. Dragging the source makes the motion
+      non-analytic; the reference then uses the recorded history.
+    </div>
+  </aside>
+</main>
+<script>/*__JS__*/</script>
+</body>
+</html>

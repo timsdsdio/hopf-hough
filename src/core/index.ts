@@ -8,3 +8,4 @@ export * from './spline64.js';
 export * from './simulation.js';
 export * from './sweep.js';
 export * from './suite.js';
+export * from './trajectories.js';

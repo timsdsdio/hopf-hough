@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  input[type="range"] { -webkit-appearance: none; appearance: none; background: #1e293b; height: 6px; border-radius: 999px; outline: none; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; cursor: pointer; }
+  input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; cursor: pointer; border: none; }
+}
+
+@layer components {
+  .ctl { @apply bg-ink-950 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-slate-200; }
+  .btn { @apply font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700 hover:bg-slate-700 transition; }
+  .btn-primary { @apply font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition; }
+  .tog { @apply flex items-center gap-1 font-mono text-[10px] text-slate-300 px-1.5 py-0.5 rounded border border-slate-700 cursor-pointer; }
+  .panel { @apply bg-ink-900/90 p-1.5 rounded border; }
+  .card { @apply bg-ink-900/60 p-2.5 rounded-lg border border-slate-800; }
+  .card-title { @apply text-[11px] font-medium text-slate-300 mb-1.5; }
+  .lbl { @apply flex flex-col gap-0.5 text-[10px] text-slate-400; }
+  .row { @apply flex items-center justify-between gap-2 text-[11px] text-slate-300; }
+  .report-table td, .report-table th { @apply px-1.5 py-0.5 border-b border-slate-800 text-right; }
+  .report-table th { @apply text-slate-400 font-normal; }
+  .report-table td:first-child, .report-table th:first-child { @apply text-left; }
+}
