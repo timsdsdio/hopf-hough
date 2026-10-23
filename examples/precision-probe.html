@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hopf-hough · GPU precision probe</title>
+<style>
+  body { font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; background: #0d131f; color: #e2e8f0; max-width: 980px; margin: 24px auto; padding: 0 16px; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; margin: 8px 0 16px; }
+  td, th { border-bottom: 1px solid #1e293b; padding: 4px 8px; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+  .ok { color: #6ee7b7; } .bad { color: #fda4af; }
+  button { font: 13px ui-monospace, monospace; padding: 6px 12px; border-radius: 6px; border: 0; background: #10b981; color: #052e1c; cursor: pointer; }
+  pre { background: #070a12; padding: 10px; border-radius: 8px; white-space: pre-wrap; font-size: 11px; max-height: 320px; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>GPU precision probe</h1>
+<p>Checks whether this GPU's shader compiler keeps the double-float (pairs of float32) arithmetic that the root solve relies on.
+Each building block runs on 16,384 inputs and is compared with exact results computed in JavaScript (float64).
+<b>shipped</b> is the code in the production shader; the other columns are the same algorithms with different guards against compiler simplification.
+A value near 1e-14 or below means the double-float step works; near 1e-7 means it has collapsed to plain float32.</p>
+<button id="go">Run</button> <span id="status"></span>
+<div id="out"></div>
+<p>Copy this into a message:</p>
+<pre id="json"></pre>
+<script>
+function load(src) { return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
+const status = document.getElementById('status');
+const fail = (e) => { status.textContent = 'Error: ' + ((e && e.message) || e); status.className = 'bad'; };
+window.addEventListener('error', (e) => fail(e.message));
+window.addEventListener('unhandledrejection', (e) => fail(e.reason));
+const ready = load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js')).catch(() => {
+  throw new Error('Could not load hopf-hough.iife.js (on GitHub Pages, Source must be "GitHub Actions"; locally, run `npm run build`).');
+});
+
+// The algorithms with a pluggable barrier BAR(x) (identity in value; meant to stop the compiler simplifying).
+const GENERIC = `
+vec2 twoSum(float a, float b) { float s = BAR(a + b); float bb = BAR(s - a); float e = (a - BAR(s - bb)) + (b - bb); return vec2(s, e); }
+vec2 quickTwoSum(float a, float b) { float s = BAR(a + b); return vec2(s, b - BAR(s - a)); }
+vec2 splitF(float a) { float t = BAR(4097.0 * a); float hi = BAR(t - BAR(t - a)); return vec2(hi, a - hi); }
+vec2 twoProd(float a, float b) { float p = BAR(a * b); vec2 A = splitF(a); vec2 B = splitF(b);
+  float e = ((BAR(A.x * B.x) - p) + BAR(A.x * B.y) + BAR(A.y * B.x)) + BAR(A.y * B.y); return vec2(p, e); }
+vec2 dfAdd(vec2 A, vec2 B) { vec2 s = twoSum(A.x, B.x); vec2 t = twoSum(A.y, B.y); s.y += t.x; s = quickTwoSum(s.x, s.y); s.y += t.y; return quickTwoSum(s.x, s.y); }
+vec2 dfMul(vec2 A, vec2 B) { vec2 p = twoProd(A.x, B.x); p.y += A.x * B.y + A.y * B.x; return quickTwoSum(p.x, p.y); }
+vec2 dfSqrt(vec2 A) { if (A.x <= 0.0) return vec2(0.0); float x = 1.0 / sqrt(A.x); float y = A.x * x;
+  vec2 yy = twoProd(y, y); vec2 d = dfAdd(A, -yy); return quickTwoSum(y, d.x * x * 0.5); }`;
+
+// Same algorithms with bit-exact splitting (masking the low mantissa bits) so products are exact even with FMA contraction.
+const MASKSPLIT = GENERIC.replace(/vec2 splitF[^\n]*\n/, 'vec2 splitF(float a) { float hi = uintBitsToFloat(floatBitsToUint(a) & 0xFFFFF000u); hi = BAR(hi); return vec2(hi, a - hi); }\n');
+
+const VARIANTS = {
+  shipped: null, // filled from the library's production shader
+  'no guard': '#define BAR(x) (x)\n' + GENERIC,
+  'uniform ×1': '#define BAR(x) ((x) * u_one)\n' + GENERIC,
+  'bit barrier': 'float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }\n' + GENERIC,
+  'bit barrier + mask split': 'float BAR(float x) { return uintBitsToFloat(floatBitsToUint(x) ^ u_zero); }\n' + MASKSPLIT,
+};
+
+const TESTS = ['twoSum', 'twoProd', 'dfAdd', 'dfMul', 'dfSqrt', 'chain'];
+const W = 256, H = 64, N = W * H;
+
+function fragment(lib) {
+  return `#version 300 es
+precision highp float; precision highp int;
+uniform highp sampler2D u_in; uniform highp sampler2D u_in2; uniform float u_one; uniform uint u_zero; uniform int u_test;
+out vec4 o;
+${lib}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 v = texelFetch(u_in, p, 0), w = texelFetch(u_in2, p, 0);
+  vec2 r = vec2(0.0);
+  if (u_test == 0) r = twoSum(v.x, v.y);
+  else if (u_test == 1) r = twoProd(v.x, v.y);
+  else if (u_test == 2) r = dfAdd(v.xy, v.zw);
+  else if (u_test == 3) r = dfMul(v.xy, v.zw);
+  else if (u_test == 4) r = dfSqrt(v.xy);
+  else {
+    // the root-function pattern: (x_hi + x_lo) - (p_hi + p_lo) - d, squared, summed, square-rooted
+    vec2 DX = dfAdd(dfAdd(dfAdd(twoSum(v.x, -v.z), vec2(v.y, 0.0)), vec2(-v.w, 0.0)), vec2(-w.x, 0.0));
+    vec2 DY = dfAdd(twoSum(w.y, -w.z), vec2(w.w, 0.0));
+    r = dfSqrt(dfAdd(dfMul(DX, DX), dfMul(DY, DY)));
+  }
+  // also report whether a*b - p is contracted to an exact FMA (diagnostic only)
+  float pr = v.x * v.y;
+  o = vec4(r, v.x * v.y - pr, 0.0);
+}`;
+}
+
+const f32 = Math.fround;
+function rnd(lo, hi) { return lo + (hi - lo) * Math.random(); }
+function mag() { return Math.pow(2, Math.floor(rnd(-12, 12))); }
+function dfPair(x) { const hi = f32(x); return [hi, f32(x - hi)]; }
+
+function makeInputs(t) {
+  const a = new Float32Array(N * 4), b = new Float32Array(N * 4), ref = new Float64Array(N), scale = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    let v = [0, 0, 0, 0], w = [0, 0, 0, 0];
+    if (t === 0) { const x = f32(rnd(-1, 1) * mag()); const y = i % 2 ? f32(-x * (1 + rnd(-1e-3, 1e-3))) : f32(rnd(-1, 1) * mag()); v = [x, y, 0, 0]; ref[i] = x + y; scale[i] = Math.abs(x) + Math.abs(y); }
+    else if (t === 1) { const x = f32(rnd(-1, 1) * mag()), y = f32(rnd(-1, 1) * mag()); v = [x, y, 0, 0]; ref[i] = x * y; scale[i] = Math.abs(x * y); }
+    else if (t === 2) { const A = dfPair(rnd(-1, 1) * mag()); const B = i % 2 ? dfPair(-(A[0] + A[1]) * (1 + rnd(-1e-4, 1e-4))) : dfPair(rnd(-1, 1) * mag()); v = [...A, ...B]; ref[i] = A[0] + A[1] + B[0] + B[1]; scale[i] = Math.abs(A[0] + A[1]) + Math.abs(B[0] + B[1]); }
+    else if (t === 3) { const A = dfPair(rnd(-1, 1) * mag()), B = dfPair(rnd(-1, 1) * mag()); v = [...A, ...B]; ref[i] = (A[0] + A[1]) * (B[0] + B[1]); scale[i] = Math.abs(ref[i]); }
+    else if (t === 4) { const A = dfPair(rnd(0.01, 1) * mag()); v = [...A, 0, 0]; ref[i] = Math.sqrt(A[0] + A[1]); scale[i] = ref[i]; }
+    else {
+      // observer and knot ~100 apart in absolute position but ~1e-3 apart relative to each other after the offsets
+      const base = rnd(-200, 200), xh = f32(base), xl = f32(rnd(-1, 1) * 1e-6), ph = f32(base + rnd(-0.01, 0.01)), pl = f32(rnd(-1, 1) * 1e-6), d = f32(rnd(-1e-3, 1e-3));
+      const yh = f32(rnd(-200, 200)), yp = f32(yh + rnd(-0.01, 0.01)), yl = f32(rnd(-1, 1) * 1e-6);
+      v = [xh, xl, ph, pl]; w = [d, yh, yp, yl];
+      const dx = (xh - ph) + (xl - pl) - d, dy = (yh - yp) + yl; ref[i] = Math.hypot(dx, dy); scale[i] = ref[i];
+    }
+    a.set(v, i * 4); b.set(w, i * 4);
+  }
+  return { a, b, ref, scale };
+}
+
+function compile(gl, src, type) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function program(gl, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl, '#version 300 es\nin vec2 a;void main(){gl_Position=vec4(a,0,1);}', gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(gl, fs, gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, 'a'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+function tex(gl, data) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, W, H, 0, gl.RGBA, gl.FLOAT, data); return t;
+}
+
+document.getElementById('go').onclick = async () => {
+  status.textContent = 'running…'; status.className = '';
+  await ready;
+  const H_ = window.HopfHough;
+  const m = H_.FRAGMENT_SHADER.match(/\/\/ -+ double-float[^\n]*\n([\s\S]*?)\/\/ -+ shell history/);
+  if (!m) throw new Error('could not find the double-float block in the production shader');
+  VARIANTS.shipped = m[1];
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const gl = canvas.getContext('webgl2');
+  if (!gl) throw new Error('WebGL2 is not available');
+  if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float is not available');
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const result = { renderer: String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)), userAgent: navigator.userAgent, maxRelErr: {}, fmaContraction: null };
+  const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const outTex = tex(gl, null), fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex, 0);
+  gl.viewport(0, 0, W, H);
+  const inputs = TESTS.map((_, t) => makeInputs(t));
+  const px = new Float32Array(N * 4);
+  for (const [name, lib] of Object.entries(VARIANTS)) {
+    status.textContent = 'running ' + name + '…'; await new Promise((r) => setTimeout(r, 0));
+    let prog;
+    try { prog = program(gl, fragment(lib)); } catch (e) { result.maxRelErr[name] = 'compile error: ' + e.message; continue; }
+    gl.useProgram(prog);
+    gl.uniform1f(gl.getUniformLocation(prog, 'u_one'), 1.0); gl.uniform1ui(gl.getUniformLocation(prog, 'u_zero'), 0);
+    gl.uniform1i(gl.getUniformLocation(prog, 'u_in'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'u_in2'), 1);
+    result.maxRelErr[name] = {};
+    TESTS.forEach((tn, t) => {
+      const inp = inputs[t];
+      gl.activeTexture(gl.TEXTURE0); const ta = tex(gl, inp.a); gl.activeTexture(gl.TEXTURE1); const tb = tex(gl, inp.b);
+      gl.uniform1i(gl.getUniformLocation(prog, 'u_test'), t);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+      let worst = 0, contracted = 0;
+      for (let i = 0; i < N; i++) {
+        const got = px[4 * i] + px[4 * i + 1];
+        const e = Math.abs(got - inp.ref[i]) / (inp.scale[i] || 1);
+        if (!(e <= worst)) worst = Number.isFinite(e) ? Math.max(worst, e) : Infinity;
+        if (t === 1 && px[4 * i + 2] !== 0) contracted++;
+      }
+      if (t === 1) result.fmaContraction = contracted / N;
+      result.maxRelErr[name][tn] = worst;
+      gl.deleteTexture(ta); gl.deleteTexture(tb);
+    });
+  }
+  // table
+  const names = Object.keys(VARIANTS);
+  let h = '<table><tr><th>block</th>' + names.map((n) => `<th>${n}</th>`).join('') + '</tr>';
+  for (const tn of TESTS) {
+    h += `<tr><td>${tn}</td>` + names.map((n) => {
+      const v = result.maxRelErr[n]; if (typeof v === 'string') return `<td class="bad">compile error</td>`;
+      const e = v[tn]; return `<td class="${e < 1e-11 ? 'ok' : 'bad'}">${e.toExponential(1)}</td>`;
+    }).join('') + '</tr>';
+  }
+  h += '</table><p>Fraction of products where <code>a*b − p</code> came out non-zero (FMA contraction): ' + (result.fmaContraction * 100).toFixed(1) + '%</p>';
+  document.getElementById('out').innerHTML = h;
+  status.textContent = 'done · ' + result.renderer; status.className = '';
+  document.getElementById('json').textContent = JSON.stringify(result, null, 1);
+};
+</script>
+</body>
+</html>
