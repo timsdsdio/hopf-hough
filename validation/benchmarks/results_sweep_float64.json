@@ -5,9 +5,9 @@
     "dtype": "float64",
     "pycharge_sweep_rel_l2": 1.0081408595770388e-12,
     "pycharge_nonfinite": 0,
-    "hh_jax_M128_sweep_rel_l2": 0.0004570246643147607,
-    "hh_jax_M512_sweep_rel_l2": 2.385129516720863e-05,
-    "hh_jax_M2048_sweep_rel_l2": 1.5213038447336816e-06
+    "hh_jax_M128_sweep_rel_l2": 0.00038365787860983157,
+    "hh_jax_M512_sweep_rel_l2": 2.1966689124359782e-05,
+    "hh_jax_M2048_sweep_rel_l2": 1.393462960893431e-06
   },
   {
     "beta": 0.999,
@@ -15,9 +15,9 @@
     "dtype": "float64",
     "pycharge_sweep_rel_l2": 3.237843671442967e-11,
     "pycharge_nonfinite": 0,
-    "hh_jax_M128_sweep_rel_l2": 0.0022488411966578577,
-    "hh_jax_M512_sweep_rel_l2": 0.00013406749699084488,
-    "hh_jax_M2048_sweep_rel_l2": 7.505571238651845e-06
+    "hh_jax_M128_sweep_rel_l2": 0.0012613266719392843,
+    "hh_jax_M512_sweep_rel_l2": 7.583849226233063e-05,
+    "hh_jax_M2048_sweep_rel_l2": 4.495274996812666e-06
   },
   {
     "beta": 0.9999,
@@ -25,8 +25,8 @@
     "dtype": "float64",
     "pycharge_sweep_rel_l2": 1.244114604859144e-09,
     "pycharge_nonfinite": 0,
-    "hh_jax_M128_sweep_rel_l2": 0.03665309541124913,
-    "hh_jax_M512_sweep_rel_l2": 0.0010353832060985605,
-    "hh_jax_M2048_sweep_rel_l2": 5.286799341986907e-05
+    "hh_jax_M128_sweep_rel_l2": 0.00394730327061633,
+    "hh_jax_M512_sweep_rel_l2": 0.0002371575809733428,
+    "hh_jax_M2048_sweep_rel_l2": 1.5191267263327554e-05
   }
 ]

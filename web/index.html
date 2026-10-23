@@ -2073,11 +2073,12 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
     if (n >= u_newton) break;
     Seg g = evalSeg(c, sc);
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
+    if (r.f == 0.0) break;                       // on the root: hold (a strict bracket would bisect away)
     if (r.f < 0.0) sLow = sc; else sHigh = sc;
     vec2 nrm = r.dist > 1e-6 ? r.d / r.dist : vec2(1.0, 0.0);
     float dfds = max(1e-12, g.dR * max(kappaFloor(), 1.0 + dot(nrm, g.dzdR)));
     float cand = sc - r.f / dfds;
-    float next = (cand > sLow && cand < sHigh) ? cand : 0.5 * (sLow + sHigh);
+    float next = (cand >= sLow && cand <= sHigh) ? cand : 0.5 * (sLow + sHigh);   // closed bracket
     bool done = abs(next - sc) < 1e-7 || (sHigh - sLow) < 1e-7;
     sc = next;
     if (done) break;
@@ -2115,8 +2116,9 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
     evalCancellationFreeKappaAndU(n, g.bHat, g.bMag, g.omb2, kappa, u);
     float kappa3 = kappa * kappa * kappa;
     vec2 eVel = (g.chg * g.omb2 / (kappa3 * rSoft2)) * u;
-    float crossZ = u.x * g.acc.y - u.y * g.acc.x;
-    vec2 eRad = (g.chg / (kappa3 * rSoft)) * vec2(n.y * crossZ, -n.x * crossZ);
+    // Radiation term n x ((n - beta) x a) written as (n - beta)(n.a) - kappa a, with u = n - beta and the
+    // cancellation-free kappa: the cross-product form rebuilds kappa ~ 1/(2 gamma^2) from O(1) float32 terms.
+    vec2 eRad = (g.chg / (kappa3 * rSoft)) * (u * dot(n, g.acc) - kappa * g.acc);
     vec2 eS = eVel + eRad;
     o.e += eS; o.eRad += eRad; o.eVel += eVel;
     o.bz += n.x * eS.y - n.y * eS.x;

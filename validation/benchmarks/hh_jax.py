@@ -117,11 +117,14 @@ def make_field_fn(M, beta_max=0.9999995, newton=8):
             dist = jnp.linalg.norm(d, axis=-1)
             f = g["R"] - dist
             sl = jnp.where(f < 0, s, sl)
-            sh = jnp.where(f < 0, sh, s)
+            sh = jnp.where(f > 0, s, sh)
             n = d / dist[..., None]
             dfds = g["dR"] * jnp.maximum(0.5 * (1 - beta_max), 1 + jnp.sum(n * g["dzdR"], -1))
             cand = s - f / dfds
-            s = jnp.where((cand > sl) & (cand < sh), cand, 0.5 * (sl + sh))
+            # Closed bracket and a hold at f == 0. (Until Oct 2026 the bracket was open and there was no hold:
+            # a Newton step landing exactly on f == 0 was rejected and the iteration fell back to bisection.)
+            ok = (cand >= sl) & (cand <= sh)
+            s = jnp.where(f == 0, s, jnp.where(ok, cand, 0.5 * (sl + sh)))
             return s, sl, sh
 
         s, _, _ = jax.lax.fori_loop(0, newton, newt, (s, sl, sh))

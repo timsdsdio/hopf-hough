@@ -91,7 +91,7 @@ export async function runWebAppChecks(log) {
     check(sameField, `v5 kernel field readback bit-identical to the original (${a.field.length / 4} points)`);
     check(a.w === b.w && a.h === b.h && a.hash === b.hash, `v5 kernel rendered frame identical to the original (${b.w}×${b.h})`);
 
-    const targets = [[0.999, 0.03], [0.9999, 0.2]];
+    const targets = [[0.999, 0.009], [0.9999, 0.05]];   // the v6.0.0 kernel (0.0095% / 0.069%) would fail these
     for (const [beta, lim] of targets) {
       const e6 = await app.page.evaluate(SWEEP('v6', beta, 512, 11));
       const e5 = await app.page.evaluate(SWEEP('v5', beta, 512, 11));

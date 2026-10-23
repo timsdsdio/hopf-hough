@@ -33,17 +33,18 @@ try {
   check(same(legacy.r128_09999, base.rows[4].r128Norm), `legacy shader reproduces original (β=0.9999, M=128): ${legacy.r128_09999.shockL2.toFixed(3)}%`);
   check(same(legacy.comp, base.comp128Reach220), `legacy shader reproduces original (grid comparison): ${legacy.comp.shockL2.toFixed(4)}%`);
 
-  // 2. Production accuracy thresholds (exact LW, no softening, float32-rounded observers).
+  // 2. Production accuracy thresholds (exact LW, no softening, float32-rounded observers). Tight enough that the
+  //    v6.0.0 kernel (cross-product radiation term, open Newton bracket: 0.0095% / 0.069% at M = 512) fails them.
   const prod = await page.evaluate(() => {
     const H = HopfHough, s = new H.GpuSolver(document.getElementById('b'), H.PRODUCTION_SHADERS), B = H.gpuBackend(s);
     const o = { base: { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false } };
     const run = (beta, mT, kBin) => H.runCase({ beta, motion: 'synchrotron', mT, kBin, velMode: 2, nShock: 256 }, B, o);
     return { g22: run(0.999, 512, 11), g70: run(0.9999, 512, 11), g70c: run(0.9999, 128, 9), g7: run(0.99, 128, 9) };
   });
-  check(prod.g7.shockL2 < 0.05, `production γ=7.1,  M=128: ${prod.g7.shockL2.toPrecision(3)}% < 0.05%`);
-  check(prod.g22.shockL2 < 0.03, `production γ=22.4, M=512: ${prod.g22.shockL2.toPrecision(3)}% < 0.03%`);
-  check(prod.g70.shockL2 < 0.2, `production γ=70.7, M=512: ${prod.g70.shockL2.toPrecision(3)}% < 0.2%`);
-  check(prod.g70c.shockL2 < 1.0, `production γ=70.7, M=128: ${prod.g70c.shockL2.toPrecision(3)}% < 1%`);
+  check(prod.g7.shockL2 < 0.045, `production γ=7.1,  M=128: ${prod.g7.shockL2.toPrecision(3)}% < 0.045%`);
+  check(prod.g22.shockL2 < 0.009, `production γ=22.4, M=512: ${prod.g22.shockL2.toPrecision(3)}% < 0.009%`);
+  check(prod.g70.shockL2 < 0.05, `production γ=70.7, M=512: ${prod.g70.shockL2.toPrecision(3)}% < 0.05%`);
+  check(prod.g70c.shockL2 < 0.5, `production γ=70.7, M=128: ${prod.g70c.shockL2.toPrecision(3)}% < 0.5%`);
 
   // 3. App smoke test.
   const app = await browser.newPage({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 0.5 });

@@ -32,17 +32,17 @@ Details, derivations and the original benchmarks are in the preprint; [docs/ACCU
 
 ## Accuracy (summary)
 
-Relative L2 error of GPU readback against the exact field (no softening), on 256 observers crossing the synchrotron pulse at retarded radius 1.15. Measured with WebGL2 in software rendering (SwiftShader); an Apple M1 Max (Metal) gives the same figures to within run-to-run scatter, e.g. 0.0089% and 0.059% at γ = 22 and 71 with M = 512 ([results/suite_m1max.tsv](results/suite_m1max.tsv)). Run the in-app suite to measure on your own GPU.
+Relative L2 error of GPU readback against the exact field (no softening), on 256 observers crossing the synchrotron pulse at retarded radius 1.15. Measured with WebGL2 in software rendering (SwiftShader). Numbers after v6.0.0 include the κ-form radiation term and the Newton fix; preprint v6 corresponds to tag v6.0.0 (doi:10.5281/zenodo.23601496). With the v6.0.0 kernel, an Apple M1 Max (Metal) gave the same figures as software rendering to within run-to-run scatter (e.g. 0.0089% and 0.059% at γ = 22 and 71, M = 512; [results/suite_m1max.tsv](results/suite_m1max.tsv)); the current kernel has not yet been re-measured there. Run the in-app suite to measure on your own GPU.
 
 <!-- ACCURACY_TABLE -->
 | β | γ | this version, M=128 | this version, M=512 | this version, M=2048 | original algorithm, M=512 |
 |---|---|---|---|---|---|
-| 0.8 | 1.7 | 0.0067% | 4.5e-4% | 4.5e-5% | 0.0010% |
-| 0.95 | 3.2 | 0.017% | 0.0010% | 1.5e-4% | 0.0019% |
-| 0.99 | 7.1 | 0.038% | 0.0023% | 4.3e-4% | 0.0097% |
-| 0.999 | 22.4 | 0.13% | 0.0095% | 0.0067% | 0.22% |
-| 0.9999 | 70.7 | 0.37% | 0.069% | 0.051% | 7.6% |
-| 0.99999 | 223.6 | 7.0%† | 1.3%† | 0.45%† | — |
+| 0.8 | 1.7 | 0.0067% | 4.4e-4% | 3.5e-5% | 0.0010% |
+| 0.95 | 3.2 | 0.017% | 0.0010% | 6.7e-5% | 0.0019% |
+| 0.99 | 7.1 | 0.038% | 0.0022% | 1.8e-4% | 0.0097% |
+| 0.999 | 22.4 | 0.13% | 0.0077% | 5.4e-4% | 0.22% |
+| 0.9999 | 70.7 | 0.37% | 0.036% | 0.0070% | 7.6% |
+| 0.99999 | 223.6 | 6.8%† | 1.2%† | 0.22%† | — |
 
 † γ ≈ 224 uses double-precision observer coordinates (float32 coordinates cannot resolve the pulse there).
 <!-- /ACCURACY_TABLE -->
@@ -90,14 +90,14 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 
 ## Compared with PyCharge
 
-Same problems, grid and reference, same CPU ([validation/benchmarks](validation/benchmarks/README.md)). Ported to JAX, the method ties PyCharge 2.0.1 at γ ≲ 7 and for 16 sources, and is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 (PyCharge is exact when it converges). In float32, the precision GPUs run at full speed, PyCharge's pulse error is 0.86% at γ = 22 and 27% at γ = 71; the WebGL kernel's is 0.0095% and 0.069%. On an M1 Max GPU the same problems take 5–7 ms for one source and 20 ms for 16 sources at the same accuracy (different machine from the CPU runs, so the ratio is indicative). To measure your GPU, open [examples/benchmark.html](https://timsdsdio.github.io/hopf-hough/examples/benchmark.html).
+Same problems, grid and reference, same CPU ([validation/benchmarks](validation/benchmarks/README.md)). Ported to JAX, the method ties PyCharge 2.0.1 at γ ≲ 7 and for 16 sources, and is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 (PyCharge is exact when it converges). In float32, the precision GPUs run at full speed, PyCharge's pulse error is 0.86% at γ = 22 and 27% at γ = 71; the WebGL kernel's is 0.0095% and 0.069% (v6.0.0 kernel, M = 512; 0.0077% and 0.036% after the κ-form and Newton fixes). On an M1 Max GPU the same problems take 5–7 ms for one source and 20 ms for 16 sources at the same accuracy (different machine from the CPU runs, so the ratio is indicative). To measure your GPU, open [examples/benchmark.html](https://timsdsdio.github.io/hopf-hough/examples/benchmark.html).
 
 ## Limitations
 
 - 2D: motion in a plane, field in that plane.
 - Prescribed motion: charges do not respond to each other's fields, and there is no radiation reaction.
 - Accuracy falls with distance once the shell spacing can no longer resolve the motion; the validity mask marks this. The stored history is the ring buffer, about 260 length units deep in the default configuration; shells extend to R ≈ 4LM/π (220 for M = 128, L = 1.35) and anything beyond either limit is marked as outside the history.
-- Very high γ: at γ ≈ 224 the pulse-sweep error is 1.3% (M = 512) and 0.45% (M = 2048). Above γ ≈ 100, float32 observer coordinates cannot resolve the pulse; pass double-precision coordinates (`x64`, `y64`) to `readFull` (the rendered view uses float32 pixel coordinates).
+- Very high γ: at γ ≈ 224 the pulse-sweep error is 1.2% (M = 512) and 0.22% (M = 2048). Above γ ≈ 100, float32 observer coordinates cannot resolve the pulse; pass double-precision coordinates (`x64`, `y64`) to `readFull` (the rendered view uses float32 pixel coordinates).
 - Accuracy has been measured in software rendering and on an Apple M1 Max. Apple's shader compiler reassociates floating-point sums, which undid an earlier version of the double-float code (it fell back to float32 accuracy). The shader now routes every rounding step through a bit-level barrier; `examples/precision-probe.html` checks each double-float building block on your GPU, and the in-app suite checks the whole solver.
 
 ## Citing
