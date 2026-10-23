@@ -1,0 +1,21 @@
+In-plane azimuth: linear interp between phi=0 and phi=dphi, evaluated at dphi/2
+  dphi=  1e-01 (=  1119.43 gamma^-3,   2.237/gamma): rel L2 err 1.00e+00
+  dphi=  1e-02 (=   111.94 gamma^-3,   0.224/gamma): rel L2 err 1.00e+00
+  dphi=  1e-03 (=    11.19 gamma^-3,   0.022/gamma): rel L2 err 1.24e+00
+  dphi=  1e-04 (=     1.12 gamma^-3,   0.002/gamma): rel L2 err 1.06e+00
+  dphi=  1e-05 (=     0.11 gamma^-3,   0.000/gamma): rel L2 err 3.52e-02
+
+Elevation psi: linear interp at midpoints, psi in [-4,4]/gamma, phi=0
+  dpsi=1/(2gamma): rel L2 err 8.80e-02
+  dpsi=1/(4gamma): rel L2 err 2.31e-02
+  dpsi=1/(8gamma): rel L2 err 5.87e-03
+  dpsi=1/(16gamma): rel L2 err 1.47e-03
+  dpsi=1/(32gamma): rel L2 err 3.68e-04
+
+Characteristic-aware azimuth interp (shift u by dphi/omega, rotate) -- only exact by symmetry:
+  dphi=1e-2: rel err 5.51e-12
+
+Per orbital period at gamma=22.37: N_u = 2.82e+05 samples (pulse width/4)
+  worldline buffer (smooth, 512/period x 6 floats): 12.3 kB  -- ratio u-samples/worldline-samples = 550 ~ gamma^3/20
+  scri accumulator, belt |psi|<4/gamma, fixed-u-interpolable: N_phi=2.8e+05, N_psi=32 -> 3.05e+01 TB
+  scri accumulator, detector of 1e3 directions: 3.38 GB

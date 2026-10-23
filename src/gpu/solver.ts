@@ -189,6 +189,7 @@ export class GpuSolver {
       this.setFloat('u_one', 1.0);
       this.set('u_taperOn', cfg.prefilter && cfg.gridMode === 'compactified');
       this.setFloat('u_omega', cfg.omega);
+      this.setFloat('u_ringReach', cfg.c * cfg.dt * (cfg.ringSize - 4));
     }
   }
 

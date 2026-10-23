@@ -1,0 +1,7 @@
+(a) clutching winding: tangent bundle (dw/dz) = -2.0 | spinor/Hopf (dw/dz)^(1/2) = -1.0   -> Euler/Chern 2 vs 1
+(b) s=1:   f(U e^{-i chi sz/2}) / f(U) = (0.764842-0.644218j)  expected e^{-i chi} = (0.764842-0.644218j)
+    s=1:   f(-U)/f(U) = (1+0j)   -> descends to SO(3) = RP^3 (no Hopf needed)
+    s=1/2: f(-U)/f(U) = (-1+0j)  -> genuinely needs SU(2) = S^3 (Hopf)
+(c) Cartesian+reproject at north pole: h=1e-2 err 8.05e-05, h=5e-3 err 2.01e-05
+(c) Cartesian+reproject at equator   : h=1e-2 err 9.97e-05, h=5e-3 err 2.49e-05
+(c) Cartesian+reproject at random    : h=1e-2 err 5.32e-05, h=5e-3 err 1.33e-05

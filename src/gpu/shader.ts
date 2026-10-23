@@ -58,6 +58,7 @@ uniform int u_showMask;
 uniform float u_maskThreshold;
 uniform int u_taperOn;              // Nyquist prefilter/taper active on the CPU side
 uniform float u_omega;              // its reference angular frequency
+uniform float u_ringReach;          // depth of the stored history, c·dt·(ringSize − 4)
 
 const float PI = 3.14159265359;
 
@@ -412,6 +413,8 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
       float lambda = 2.0 * PI * u_c / max(0.5, u_omega);
       if (g.dR / (0.5 * lambda) > 0.25) q = max(q, 2.0);
     }
+    // Beyond the ring buffer the shells repeat its oldest sample: not a valid history.
+    if (u_ringReach > 0.0 && g.r1 + g.dR > u_ringReach) inDomain = false;
     if (!inDomain) o.quality = -1.0;
     else if (o.quality >= 0.0) o.quality = max(o.quality, q);
     if (s == 0) { o.emit0 = (g.p1hi + g.p1lo) + g.dPosSub; o.dbg = vec4(g.r1, g.dRSub, kappa, g.bMag); }

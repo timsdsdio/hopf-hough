@@ -73,11 +73,11 @@ export const DEFAULT_CONFIG: SolverConfig = {
   kBin: 9,
   velMode: 2,
   scaleL: 1.35,
-  softEps: 0.06,
+  softEps: 0,
   omega: 1.6,
   gridMode: 'compactified',
   gridRMax: 220.0,
-  prefilter: true,
+  prefilter: false,
   newton: 12,
   certMode: 1,
   rootMode: 1,
@@ -86,8 +86,8 @@ export const DEFAULT_CONFIG: SolverConfig = {
 };
 
 /** Settings that reproduce the original solver (used for regression and the legacy tables). */
-export const LEGACY_SETTINGS: Pick<SolverConfig, 'newton' | 'certMode' | 'rootMode' | 'precision' | 'betaMax' | 'softEps'> = {
-  newton: 2, certMode: 0, rootMode: 0, precision: 0, betaMax: 0.99995, softEps: 0.06,
+export const LEGACY_SETTINGS: Pick<SolverConfig, 'newton' | 'certMode' | 'rootMode' | 'precision' | 'betaMax' | 'softEps' | 'prefilter'> = {
+  newton: 2, certMode: 0, rootMode: 0, precision: 0, betaMax: 0.99995, softEps: 0.06, prefilter: true,
 };
 
 /** Largest number of shells per source supported by the texture layout. */

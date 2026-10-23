@@ -82,4 +82,7 @@ if __name__ == "__main__":
         rs = np.logspace(0.5, 6.5, 49)
         res = run(gamma, 0.0, rs)
         r1 = next((r for r, e in res if e < 0.01), None)
-        print(f"  gamma={gamma:6.2f}: r_1% ~ {r1:9.1f}   r_1%/gamma = {r1/gamma:7.1f}   r_1%/gamma^2 = {r1/gamma**2:7.2f}")
+        if r1 is None:
+            print(f"  gamma={gamma:6.2f}: r_1% > {rs[-1]:.1e} (beyond the scanned range)")
+        else:
+            print(f"  gamma={gamma:6.2f}: r_1% ~ {r1:9.1f}   r_1%/gamma = {r1/gamma:7.1f}   r_1%/gamma^2 = {r1/gamma**2:7.2f}")
