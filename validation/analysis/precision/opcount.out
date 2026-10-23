@@ -1,0 +1,3 @@
+published                            ~2373 f32 ops/pixel (M=512, kBin=11, 2 Newton); texel fetches +0
+df64 fix                             ~6372 f32 ops/pixel (M=512, kBin=11, 2 Newton); texel fetches +one RG32F (hi/lo) per sampler call
+f32 bisect + widen + 4 df64 bisect   ~8184 f32 ops/pixel (M=512, kBin=11, 2 Newton); texel fetches +one RG32F (hi/lo) per sampler call

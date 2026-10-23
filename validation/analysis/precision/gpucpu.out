@@ -1,0 +1,12 @@
+gamma 22.4 M=512 published: discrepancy between two legal f32 op orderings = 0.289%
+gamma 22.4 M=512 df64-fix : discrepancy between two legal f32 op orderings = 0.000%
+gamma 22.4 M=1024 published: discrepancy between two legal f32 op orderings = 0.335%
+gamma 22.4 M=1024 df64-fix : discrepancy between two legal f32 op orderings = 0.000%
+gamma 22.4 M=2048 published: discrepancy between two legal f32 op orderings = 0.260%
+gamma 22.4 M=2048 df64-fix : discrepancy between two legal f32 op orderings = 0.000%
+gamma 70.7 M=512 published: discrepancy between two legal f32 op orderings = 5.960%
+gamma 70.7 M=512 df64-fix : discrepancy between two legal f32 op orderings = 0.000%
+gamma 70.7 M=1024 published: discrepancy between two legal f32 op orderings = 7.266%
+gamma 70.7 M=1024 df64-fix : discrepancy between two legal f32 op orderings = 0.000%
+gamma 70.7 M=2048 published: discrepancy between two legal f32 op orderings = 5.688%
+gamma 70.7 M=2048 df64-fix : discrepancy between two legal f32 op orderings = 0.000%

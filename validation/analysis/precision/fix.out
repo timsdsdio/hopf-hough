@@ -1,0 +1,96 @@
+
+## gamma=22.4 M=512 query=f32 betaMax=0.99995
+  baseline F32 (solver as published)                  0.1924%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    0.0676%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0101%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0326%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0096%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.0076%   (distinct f32 pts 256)
+
+## gamma=22.4 M=512 query=df64 betaMax=0.99995
+  baseline F32 (solver as published)                  0.2153%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    0.0663%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0096%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0945%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0109%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.1131%   (distinct f32 pts 256)
+
+## gamma=22.4 M=2048 query=f32 betaMax=0.99995
+  baseline F32 (solver as published)                  0.3008%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    0.0800%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0053%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0085%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0059%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.0005%   (distinct f32 pts 256)
+
+## gamma=22.4 M=2048 query=df64 betaMax=0.99995
+  baseline F32 (solver as published)                  0.2966%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    0.0797%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0048%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0231%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0044%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.1132%   (distinct f32 pts 256)
+
+## gamma=70.7 M=512 query=f32 betaMax=0.99995
+  baseline F32 (solver as published)                  7.2344%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    1.2219%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0611%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.3041%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0828%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.0236%   (distinct f32 pts 256)
+
+## gamma=70.7 M=512 query=df64 betaMax=0.99995
+  baseline F32 (solver as published)                  8.2833%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    1.2275%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0831%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0687%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0775%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            3.2446%   (distinct f32 pts 256)
+
+## gamma=70.7 M=2048 query=f32 betaMax=0.99995
+  baseline F32 (solver as published)                  7.7878%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    2.0828%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0574%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0667%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0485%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            0.0017%   (distinct f32 pts 256)
+
+## gamma=70.7 M=2048 query=df64 betaMax=0.99995
+  baseline F32 (solver as published)                  8.7580%   (distinct f32 pts 256)
+  df64 root path, f32 knot storage                    2.0625%   (distinct f32 pts 256)
+  df64 root path + hi/lo knot storage                 0.0486%   (distinct f32 pts 256)
+  df64 root + hi/lo, 6 safeguarded Newton             0.0723%   (distinct f32 pts 256)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton     0.0934%   (distinct f32 pts 256)
+  all-F64 spline (model floor, limiter on)            3.2453%   (distinct f32 pts 256)
+
+## gamma=200.0 M=512 query=f32 betaMax=0.9999995
+  baseline F32 (solver as published)                114.6795%   (distinct f32 pts 101)
+  df64 root path, f32 knot storage                   45.3887%   (distinct f32 pts 101)
+  df64 root path + hi/lo knot storage                 0.7671%   (distinct f32 pts 101)
+  df64 root + hi/lo, 6 safeguarded Newton             0.5738%   (distinct f32 pts 101)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton    17.2173%   (distinct f32 pts 101)
+  all-F64 spline (model floor, limiter on)            0.0602%   (distinct f32 pts 101)
+
+## gamma=200.0 M=512 query=df64 betaMax=0.9999995
+  baseline F32 (solver as published)                 85.0346%   (distinct f32 pts 101)
+  df64 root path, f32 knot storage                   47.5225%   (distinct f32 pts 101)
+  df64 root path + hi/lo knot storage                 1.0588%   (distinct f32 pts 101)
+  df64 root + hi/lo, 6 safeguarded Newton             0.8899%   (distinct f32 pts 101)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton    21.2868%   (distinct f32 pts 101)
+  all-F64 spline (model floor, limiter on)           35.0304%   (distinct f32 pts 101)
+
+## gamma=200.0 M=2048 query=f32 betaMax=0.9999995
+  baseline F32 (solver as published)                106.3460%   (distinct f32 pts 101)
+  df64 root path, f32 knot storage                   35.6984%   (distinct f32 pts 101)
+  df64 root path + hi/lo knot storage                 2.9605%   (distinct f32 pts 101)
+  df64 root + hi/lo, 6 safeguarded Newton             0.5771%   (distinct f32 pts 101)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton    97.5845%   (distinct f32 pts 101)
+  all-F64 spline (model floor, limiter on)            0.0036%   (distinct f32 pts 101)
+
+## gamma=200.0 M=2048 query=df64 betaMax=0.9999995
+  baseline F32 (solver as published)                 93.6906%   (distinct f32 pts 101)
+  df64 root path, f32 knot storage                   37.6608%   (distinct f32 pts 101)
+  df64 root path + hi/lo knot storage                 2.2362%   (distinct f32 pts 101)
+  df64 root + hi/lo, 6 safeguarded Newton             0.8758%   (distinct f32 pts 101)
+  f32 bisect, widen 0.5, 4 df64 bisect + 2 Newton    92.2171%   (distinct f32 pts 101)
+  all-F64 spline (model floor, limiter on)           35.0604%   (distinct f32 pts 101)

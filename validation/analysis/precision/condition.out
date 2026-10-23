@@ -1,0 +1,24 @@
+## Sensitivity of E(x) at the crest sweep (Float64 reference)
+gamma | FWHM(arc) | FWHM/ulp | max |dE/dx||x|/E_rms | max rel. change per 1 ulp | predicted L2 shift from f32 query rounding
+   7.1 | 1.89e-3 | 15847.4 | 8.59e+3 | 0.072% | 0.003%
+  22.4 | 5.61e-5 |   470.9 | 2.71e+5 | 2.259% | 0.107%
+  31.6 | 1.99e-5 |   166.6 | 7.67e+5 | 6.392% | 0.302%
+  70.7 | 1.78e-6 |    14.9 | 8.57e+6 | 71.460% | 3.371%
+ 200.0 | 8.97e-8 |     0.8 | 2.75e+8 | 2290.829% | 76.191%
+
+## gamma scaling of the F32 floor: published solver vs df64-critical-path fix (M=512, f32 query, paper metric)
+gamma    7.1 (betaMax 0.99995): published    0.010%   fix M=512   0.0022%   fix M=2048   0.0005%
+gamma   10.0 (betaMax 0.99995): published    0.024%   fix M=512   0.0036%   fix M=2048   0.0008%
+gamma   22.4 (betaMax 0.99995): published    0.192%   fix M=512   0.0101%   fix M=2048   0.0053%
+gamma   31.6 (betaMax 0.99995): published    0.602%   fix M=512   0.0139%   fix M=2048   0.0109%
+gamma   50.0 (betaMax 0.99995): published    3.058%   fix M=512   0.0348%   fix M=2048   0.0257%
+gamma   70.7 (betaMax 0.99995): published    7.234%   fix M=512   0.0611%   fix M=2048   0.0574%
+gamma  100.0 (betaMax 0.9999995): published   13.136%   fix M=512   0.1909%   fix M=2048   0.1115%
+gamma  158.1 (betaMax 0.9999995): published   69.497%   fix M=512   0.4305%   fix M=2048   2.1393%
+gamma  200.0 (betaMax 0.9999995): published  114.680%   fix M=512   0.7671%   fix M=2048   2.9605%
+
+## Fair metrics (gamma=70.7): published vs fix
+M=512 published  L2@represented 7.234%  phase-aligned 8.203% (best shift -1.27e-8)  fluence 2.589%
+M=512 fix        L2@represented 0.061%  phase-aligned 3.244% (best shift 0.00e+0)  fluence 0.012%
+M=2048 published  L2@represented 7.788%  phase-aligned 6.935% (best shift -6.34e-8)  fluence 3.839%
+M=2048 fix        L2@represented 0.057%  phase-aligned 3.234% (best shift 0.00e+0)  fluence 0.004%

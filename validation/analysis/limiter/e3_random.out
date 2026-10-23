@@ -1,0 +1,32 @@
+(a) random data in ball: raw cubic superluminal 2351/4000; paper fires 3557 (false-pos 1206); |z'|^2-Bernstein fires 3341 (false-pos 990)
+    when sharp alpha<1: median alpha_paper/alpha_sharp=0.257 (p10 0.250); alpha_sq/alpha_sharp median=0.464 (p10 0.393)
+(b1) hyperbolic motion, segment [t1,t2]: raw max|z'| vs knot speeds
+   a=1 t=[2,20] b1=0.894427 b2=0.998752 vsec=0.988273  raw max|z'|=1.019994  a_paper=0.140 a_sharp=0.368
+   a=1 t=[5,50] b1=0.980581 b2=0.999800 vsec=0.998022  raw max|z'|=1.003903  a_paper=0.123 a_sharp=0.328
+   a=1 t=[10,200] b1=0.995037 b2=0.999988 vsec=0.999751  raw max|z'|=1.001326  a_paper=0.045 a_sharp=0.127
+   a=1 t=[0,100] b1=0.000000 b2=0.999950 vsec=0.990050  raw max|z'|=1.320100  a_paper=0.010 a_sharp=0.030
+   a=1 t=[3,1000] b1=0.948683 b2=1.000000 vsec=0.999838  raw max|z'|=1.016889  a_paper=0.002 a_sharp=0.007
+(b2) mid-segment kick (radiation-reaction/collision/laser-like), speed b, deflection psi at fraction f
+   b=0.99 psi=0.05 f=0.2: raw max|z'|=0.99012  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.99 psi=0.05 f=0.5: raw max|z'|=0.99000  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.99 psi=0.3 f=0.2: raw max|z'|=0.99427  a_paper=0.650 a_sq=1.000 a_sharp=1.000
+   b=0.99 psi=0.3 f=0.5: raw max|z'|=0.99000  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.99 psi=1.0 f=0.2: raw max|z'|=1.03311 SUPERLUMINAL a_paper=0.369 a_sq=0.586 a_sharp=0.767
+   b=0.99 psi=1.0 f=0.5: raw max|z'|=0.99000  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.99 psi=2.5 f=0.2: raw max|z'|=1.14971 SUPERLUMINAL a_paper=0.343 a_sq=0.543 a_sharp=0.712
+   b=0.99 psi=2.5 f=0.5: raw max|z'|=0.99000  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.9999 psi=0.05 f=0.2: raw max|z'|=1.00002 SUPERLUMINAL a_paper=0.398 a_sq=0.633 a_sharp=0.826
+   b=0.9999 psi=0.05 f=0.5: raw max|z'|=0.99990  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.9999 psi=0.3 f=0.2: raw max|z'|=1.00421 SUPERLUMINAL a_paper=0.335 a_sq=0.531 a_sharp=0.696
+   b=0.9999 psi=0.3 f=0.5: raw max|z'|=0.99990  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.9999 psi=1.0 f=0.2: raw max|z'|=1.04344 SUPERLUMINAL a_paper=0.334 a_sq=0.528 a_sharp=0.693
+   b=0.9999 psi=1.0 f=0.5: raw max|z'|=0.99990  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+   b=0.9999 psi=2.5 f=0.2: raw max|z'|=1.16120 SUPERLUMINAL a_paper=0.333 a_sq=0.528 a_sharp=0.692
+   b=0.9999 psi=2.5 f=0.5: raw max|z'|=0.99990  a_paper=1.000 a_sq=1.000 a_sharp=1.000
+(b3) circle with knot velocities lagged by half a segment (leapfrog staggering)
+   beta=0.99 phi=0.02: raw max|z'|=0.990066  a_paper=1.000 a_sharp=1.000
+   beta=0.99 phi=0.1: raw max|z'|=0.991654  a_paper=1.000 a_sharp=1.000
+   beta=0.99 phi=0.3: raw max|z'|=1.004609 SUPERLUMINAL a_paper=0.280 a_sharp=0.788
+   beta=0.9999 phi=0.02: raw max|z'|=0.999967  a_paper=0.295 a_sharp=0.834
+   beta=0.9999 phi=0.1: raw max|z'|=1.001570 SUPERLUMINAL a_paper=0.100 a_sharp=0.276
+   beta=0.9999 phi=0.3: raw max|z'|=1.014655 SUPERLUMINAL a_paper=0.092 a_sharp=0.253

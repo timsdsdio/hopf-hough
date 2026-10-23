@@ -1,0 +1,18 @@
+(ii) 1D sawtooth chords ±c, 8 segments, knot slopes free (C^1 cubic):
+   c=0.50 (c/bm=0.505): min over knot slopes of worst max|z'| = 0.7497 -> feasible  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.60 (c/bm=0.606): min over knot slopes of worst max|z'| = 0.8996 -> feasible  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.65 (c/bm=0.657): min over knot slopes of worst max|z'| = 0.9750 -> feasible  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.66 (c/bm=0.667): min over knot slopes of worst max|z'| = 0.9900 -> feasible  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.67 (c/bm=0.677): min over knot slopes of worst max|z'| = 1.0044 -> INFEASIBLE  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.70 (c/bm=0.707): min over knot slopes of worst max|z'| = 1.0494 -> INFEASIBLE  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.80 (c/bm=0.808): min over knot slopes of worst max|z'| = 1.1986 -> INFEASIBLE  (prediction: feasible iff c <= 2bm/3 = 0.660)
+   c=0.95 (c/bm=0.960): min over knot slopes of worst max|z'| = 1.4242 -> INFEASIBLE  (prediction: feasible iff c <= 2bm/3 = 0.660)
+(iii) minimal degree n of a C^1 (exact-velocity) interpolant with Bernstein-certified |z'|<=0.99995
+   hyperbolic t=[2,20]          |v|=0.988273  n*=10  (a-priori bound 4b/(b-|v|)=343)
+   hyperbolic t=[0,100]         |v|=0.990050  n*=102  (a-priori bound 4b/(b-|v|)=404)
+   kick b=.9999 psi=0.3 f=.2    |v|=0.992729  n*=5  (a-priori bound 4b/(b-|v|)=554)
+   kick b=.9999 psi=2.5 f=.2    |v|=0.650807  n*=5  (a-priori bound 4b/(b-|v|)=11)
+   circle b=.9999 phi=0.02      |v|=0.999883  n*=3  (a-priori bound 4b/(b-|v|)=59999)
+   circle b=.9999 phi=0.1       |v|=0.999483  n*=6  (a-priori bound 4b/(b-|v|)=8573)
+   circle b=.9999 phi=0.3       |v|=0.996155  n*=6  (a-priori bound 4b/(b-|v|)=1054)
+   circle b=.9999 phi=1.0       |v|=0.958755  n*=6  (a-priori bound 4b/(b-|v|)=97)

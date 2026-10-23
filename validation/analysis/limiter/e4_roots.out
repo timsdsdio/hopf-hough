@@ -1,0 +1,3 @@
+hyperbolic a=1 t=[2,20] segment dR=18: f non-monotone on 56.5% of segment, 3-root observer band width = 0.1357 (units of c*t)
+hyperbolic a=1 t=[0,100] segment dR=100: f non-monotone on 66.0% of segment, 3-root observer band width = 14.0819 (units of c*t)
+hyperbolic a=1 t=[5,50] segment dR=45: f non-monotone on 57.6% of segment, 3-root observer band width = 0.0675 (units of c*t)
