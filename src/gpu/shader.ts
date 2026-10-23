@@ -60,6 +60,7 @@ uniform float u_maskThreshold;
 uniform int u_taperOn;              // Nyquist prefilter/taper active on the CPU side
 uniform float u_omega;              // its reference angular frequency
 uniform float u_ringReach;          // depth of the stored history, c·dt·(ringSize − 4)
+uniform int u_fastRender;           // 1: cheaper root solve for on-screen rendering (never used for readback)
 
 const float PI = 3.14159265359;
 
@@ -193,27 +194,36 @@ struct Seg {
 
 // Segment m1 at fraction t in [0, 1). Index and fraction are kept separate so that float32
 // resolution of a combined coordinate (≈ 6e-5 near m = 1000) never limits the retarded point.
-Seg sampleSegAt(int s, int m1In, float tIn) {
+// Everything about a segment that does not depend on the position inside it: fetched and
+// certified once per (pixel, source), then evaluated at each Newton iterate by evalSeg().
+struct SegC {
+  vec2 p1hi; vec2 p1lo; float r1; float dR; bool hasNext;
+  vec2 dChord; vec2 v0; vec2 v1; vec2 v2;
+  vec2 acc0; vec2 acc1; vec2 acc2; vec2 acc3;
+  vec2 u0; vec2 u1; vec2 u2; vec2 u3;
+  float chg;
+};
+
+SegC segCoef(int s, int m1In) {
   int m1 = clamp(m1In, 0, u_mT - 2);
-  float t = clamp(tIn, 0.0, 0.99999);
   int m0 = max(0, m1 - 1);
   int m2 = min(u_mT - 1, m1 + 1);
   int m3 = min(u_mT - 1, m1 + 2);
-  float t2 = t * t;
-  float t3 = t2 * t;
   Knot k0 = knotAt(s, m0);
   Knot k1 = knotAt(s, m1);
   Knot k2 = knotAt(s, m2);
   Knot k3 = knotAt(s, m3);
 
-  Seg g;
-  g.r1 = k1.r;
+  SegC c;
+  c.r1 = k1.r;
+  c.hasNext = m2 > m1;
   float dR = m2 > m1 ? max(1e-6, k2.r - k1.r) : 1e-6;
-  float sRad = m2 > m1 ? t : 0.0;
-  g.dR = dR;
-  g.dRSub = sRad * dR;
-  g.p1hi = k1.phi;
-  g.p1lo = k1.plo;
+  c.dR = dR;
+  c.p1hi = k1.phi;
+  c.p1lo = k1.plo;
+  c.acc0 = k0.acc; c.acc1 = k1.acc; c.acc2 = k2.acc; c.acc3 = k3.acc;
+  c.u0 = k0.u; c.u1 = k1.u; c.u2 = k2.u; c.u3 = k3.u;
+  c.chg = k1.chg;
 
   float maxSub = u_betaMax;
   vec2 dChord = (k2.phi - k1.phi) + (k2.plo - k1.plo);
@@ -232,9 +242,26 @@ Seg sampleSegAt(int s, int m1In, float tIn) {
   if (u_certMode == 0) alpha = alphaLegacy(vSec, v1Raw, maxSub);
   else if (u_certMode == 1) alpha = alphaSharp(vSec, -b1, -b2, maxSub);
   float oma = 1.0 - alpha;
-  vec2 v0 = oma * vSec - alpha * b1;
-  vec2 v1 = vSec + alpha * (v1Raw - vSec);
-  vec2 v2 = oma * vSec - alpha * b2;
+  c.dChord = dChord;
+  c.v0 = oma * vSec - alpha * b1;
+  c.v1 = vSec + alpha * (v1Raw - vSec);
+  c.v2 = oma * vSec - alpha * b2;
+  return c;
+}
+
+Seg evalSeg(SegC c, float tIn) {
+  float t = clamp(tIn, 0.0, 0.99999);
+  float t2 = t * t;
+  float t3 = t2 * t;
+  float dR = c.dR;
+  float sRad = c.hasNext ? t : 0.0;
+  vec2 dChord = c.dChord, v0 = c.v0, v1 = c.v1, v2 = c.v2;
+  Seg g;
+  g.r1 = c.r1;
+  g.dR = dR;
+  g.dRSub = sRad * dR;
+  g.p1hi = c.p1hi;
+  g.p1lo = c.p1lo;
 
   float s2 = sRad * sRad;
   float s3 = s2 * sRad;
@@ -251,29 +278,31 @@ Seg sampleSegAt(int s, int m1In, float tIn) {
   float w1 = 1.5 * t3 - 2.5 * t2 + 1.0;
   float w2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
   float w3 = 0.5 * t3 - 0.5 * t2;
-  g.acc = k0.acc * w0 + k1.acc * w1 + k2.acc * w2 + k3.acc * w3;
-  g.chg = k1.chg;
-  g.duRel = length(k2.u - k1.u) / (0.5 * (length(k1.u) + length(k2.u)) + 0.1);
+  g.acc = c.acc0 * w0 + c.acc1 * w1 + c.acc2 * w2 + c.acc3 * w3;
+  g.chg = c.chg;
+  g.duRel = length(c.u2 - c.u1) / (0.5 * (length(c.u1) + length(c.u2)) + 0.1);
 
   if (u_velMode == 2) {
-    float uTarget = mix(length(k1.u), length(k2.u), t);
+    float uTarget = mix(length(c.u1), length(c.u2), t);
     g.bHat = splineVelMag > 1e-7 ? splineVel / splineVelMag : vec2(1.0, 0.0);
     float uSq = uTarget * uTarget;
     g.bMag = uTarget / sqrt(1.0 + uSq);
     g.omb2 = 1.0 / (1.0 + uSq);
   } else if (u_velMode == 1) {
-    float bTarget = mix(length(k1.u), length(k2.u), t);
+    float bTarget = mix(length(c.u1), length(c.u2), t);
     g.bHat = splineVelMag > 1e-7 ? splineVel / splineVelMag : vec2(1.0, 0.0);
     g.bMag = min(0.9999995, bTarget);
     g.omb2 = (1.0 - g.bMag) * (1.0 + g.bMag);
   } else {
-    vec2 rawVel = k0.u * w0 + k1.u * w1 + k2.u * w2 + k3.u * w3;
+    vec2 rawVel = c.u0 * w0 + c.u1 * w1 + c.u2 * w2 + c.u3 * w3;
     g.bMag = min(0.9999995, length(rawVel));
     g.bHat = g.bMag > 1e-7 ? rawVel / g.bMag : vec2(1.0, 0.0);
     g.omb2 = (1.0 - g.bMag) * (1.0 + g.bMag);
   }
   return g;
 }
+
+Seg sampleSegAt(int s, int m1In, float tIn) { return evalSeg(segCoef(s, m1In), tIn); }
 
 Seg sampleSeg(int s, float mFloat) {
   float mClamped = clamp(mFloat, 0.0, float(u_mT) - 1.0001);
@@ -284,9 +313,13 @@ Seg sampleSeg(int s, float mFloat) {
 // Root function f = R - |x - z| and the separation vector d = x - z (both single precision on return).
 struct RootEval { float f; vec2 d; float dist; };
 
+// g_fast: on-screen rendering (u_fastRender = 1). Readback (verification suite, probe, tables) always
+// takes the full path, so every reported number is unaffected by the display shortcuts.
+bool g_fast = false;
+
 RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, float dRSub) {
   RootEval o;
-  if (u_precision == 1) {
+  if (u_precision == 1 && !g_fast) {
     vec2 DX = dfAdd(dfAdd(dfAdd(twoSum(xhi.x, -phi.x), vec2(xlo.x, 0.0)), vec2(-plo.x, 0.0)), vec2(-dPosSub.x, 0.0));
     vec2 DY = dfAdd(dfAdd(dfAdd(twoSum(xhi.y, -phi.y), vec2(xlo.y, 0.0)), vec2(-plo.y, 0.0)), vec2(-dPosSub.y, 0.0));
     vec2 dist = dfSqrt(dfAdd(dfMul(DX, DX), dfMul(DY, DY)));
@@ -294,6 +327,18 @@ RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, 
     o.f = F.x + F.y;
     o.d = vec2(DX.x + DX.y, DY.x + DY.y);
     o.dist = dist.x + dist.y;
+  } else if (u_precision == 1) {
+    // Display path: same double-float cancellation, but no double-float square root.
+    // d = x - z: the large parts cancel exactly in twoSum; the small parts (observer and knot low words,
+    // offset inside the segment) are added as a second double-float. Then f = (R² - |d|²) / (R + |d|):
+    // the numerator in double-float, the division in float32 (it only sets f's relative error).
+    vec2 DX = dfAdd(twoSum(xhi.x, -phi.x), twoSum(SUB(xlo.x, plo.x), -dPosSub.x));
+    vec2 DY = dfAdd(twoSum(xhi.y, -phi.y), twoSum(SUB(xlo.y, plo.y), -dPosSub.y));
+    vec2 R = twoSum(r1, dRSub);
+    vec2 num = dfAdd(dfMul(R, R), -dfAdd(dfMul(DX, DX), dfMul(DY, DY)));
+    o.d = vec2(DX.x + DX.y, DY.x + DY.y);
+    o.dist = length(o.d);
+    o.f = (num.x + num.y) / max(1e-30, (R.x + R.y) + o.dist);
   } else {
     o.d = (xhi - phi) - dPosSub;
     o.dist = length(o.d);
@@ -307,7 +352,16 @@ RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, 
 float kappaFloor() { return u_rootMode == 0 && u_certMode == 0 ? 5e-5 : 0.5 * (1.0 - u_betaMax); }
 
 // Retarded root for source s at observer x; returns m (shell coordinate) and sets inDomain.
-void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out float fracOut) {
+// Root function at a stored knot in float32, used only for its sign during the knot bisection.
+// It can be wrong only within a few rounding errors of zero, i.e. next to the root; the bracket
+// is then checked once in double-float (below) and moved by one segment if needed.
+float knotF(vec2 xhi, vec2 xlo, Knot k) {
+  if (u_precision != 1 || !g_fast) return rootFn(xhi, xlo, k.phi, k.plo, vec2(0.0), k.r, 0.0).f;
+  vec2 d = (xhi - k.phi) + (xlo - k.plo);
+  return k.r - length(d);
+}
+
+void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out float fracOut, out SegC cOut) {
   inDomain = true;
   if (u_rootMode == 0) {
     float mLow = 0.0;
@@ -331,6 +385,7 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
     if (mRet > float(u_mT) - 1.5) inDomain = false;
     float mF = floor(mRet);
     segOut = int(mF); fracOut = mRet - mF;
+    cOut = segCoef(s, segOut);
     return;
   }
 
@@ -339,17 +394,33 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
   int hi = u_mT - 1;
   Knot kl = knotAt(s, lo);
   Knot kh = knotAt(s, hi);
-  float fLo = rootFn(xhi, xlo, kl.phi, kl.plo, vec2(0.0), kl.r, 0.0).f;
-  float fHi = rootFn(xhi, xlo, kh.phi, kh.plo, vec2(0.0), kh.r, 0.0).f;
-  if (fHi <= 0.0) { inDomain = false; segOut = u_mT - 2; fracOut = 0.9999; return; }
-  if (fLo >= 0.0) { segOut = 0; fracOut = 0.0; return; }
+  float fLo = knotF(xhi, xlo, kl);
+  float fHi = knotF(xhi, xlo, kh);
+  if (fHi <= 0.0) { inDomain = false; segOut = u_mT - 2; fracOut = 0.9999; cOut = segCoef(s, segOut); return; }
+  if (fLo >= 0.0) { segOut = 0; fracOut = 0.0; cOut = segCoef(s, 0); return; }
   for (int i = 0; i < 12; i++) {
     if (hi - lo <= 1) break;
     int mid = (lo + hi) / 2;
     Knot km = knotAt(s, mid);
-    float fm = rootFn(xhi, xlo, km.phi, km.plo, vec2(0.0), km.r, 0.0).f;
+    float fm = knotF(xhi, xlo, km);
     if (fm < 0.0) { lo = mid; fLo = fm; } else { hi = mid; fHi = fm; }
   }
+  // Check the end of the bracket nearer zero in double-float (the only one whose float32 sign can be
+  // wrong), move the bracket by one segment if it was, and refresh that end's value. (Display path only:
+  // the full path bisects in double-float throughout.)
+  if (u_precision == 1 && g_fast) {
+    bool checkLo = abs(fLo) < abs(fHi);
+    Knot kc = knotAt(s, checkLo ? lo : lo + 1);
+    float fc = rootFn(xhi, xlo, kc.phi, kc.plo, vec2(0.0), kc.r, 0.0).f;
+    if (checkLo && fc >= 0.0 && lo > 0) {
+      fHi = fc; lo -= 1; Knot kn = knotAt(s, lo);
+      fLo = rootFn(xhi, xlo, kn.phi, kn.plo, vec2(0.0), kn.r, 0.0).f;
+    } else if (!checkLo && fc < 0.0 && lo + 2 <= u_mT - 1) {
+      fLo = fc; lo += 1; Knot kn = knotAt(s, lo + 1);
+      fHi = rootFn(xhi, xlo, kn.phi, kn.plo, vec2(0.0), kn.r, 0.0).f;
+    } else if (checkLo) fLo = fc; else fHi = fc;
+  }
+  SegC c = segCoef(s, lo);
   // Safeguarded Newton inside [lo, lo+1], started from linear interpolation of f.
   float sLow = 0.0;
   float sHigh = 0.9999;
@@ -358,7 +429,7 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
   // high gamma, so iterate to convergence (u_newton = maximum steps) with a bisection fallback.
   for (int n = 0; n < 16; n++) {
     if (n >= u_newton) break;
-    Seg g = sampleSegAt(s, lo, sc);
+    Seg g = evalSeg(c, sc);
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
     if (r.f < 0.0) sLow = sc; else sHigh = sc;
     vec2 nrm = r.dist > 1e-6 ? r.d / r.dist : vec2(1.0, 0.0);
@@ -369,7 +440,7 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
     sc = next;
     if (done) break;
   }
-  segOut = lo; fracOut = sc;
+  segOut = lo; fracOut = sc; cOut = c;
 }
 
 void evalCancellationFreeKappaAndU(vec2 n, vec2 bHat, float bMag, float omb2, out float kappa, out vec2 u) {
@@ -387,9 +458,9 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
   for (int s = 0; s < 256; s++) {
     if (s >= u_activeCount) break;
     bool inDomain;
-    int seg; float frac;
-    solveRoot(s, xhi, xlo, inDomain, seg, frac);
-    Seg g = sampleSegAt(s, seg, frac);
+    int seg; float frac; SegC cS;
+    solveRoot(s, xhi, xlo, inDomain, seg, frac, cS);
+    Seg g = evalSeg(cS, frac);
     float mRet = float(seg) + frac;
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
     vec2 d = r.d;
@@ -485,6 +556,7 @@ vec3 evalImpostors(vec2 wPos) {
 }
 
 void main() {
+  g_fast = (u_readbackMode == 0 && u_fastRender == 1);
   vec2 xhi;
   vec2 xlo = vec2(0.0);
   if (u_readbackMode == 1) {

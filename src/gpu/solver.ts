@@ -261,6 +261,7 @@ export class GpuSolver {
     gl.useProgram(this.program);
     this.setSolverUniforms(cfg);
     this.set('u_readbackMode', 0);
+    this.set('u_fastRender', 1);   // display path; readback() never sets it
     for (const [k, v] of Object.entries(uniforms)) this.set(k, v);
     for (const [k, v] of Object.entries(floats)) this.setFloat(k, v);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
