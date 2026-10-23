@@ -1,0 +1,2441 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compactified Wavefront Liénard-Wiechert GPU Solver</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        slate: {
+                            850: '#141c2b',
+                            900: '#0d131f',
+                            950: '#070a12',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #070a12; color: #e2e8f0; overflow-x: hidden; }
+        input[type="range"] { -webkit-appearance: none; appearance: none; background: #1e293b; height: 6px; border-radius: 999px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; cursor: pointer; box-shadow: 0 0 10px rgba(56, 189, 248, 0.7); }
+        .canvas-glow { box-shadow: 0 0 35px -10px rgba(56, 189, 248, 0.2); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans antialiased selection:bg-sky-500 selection:text-white">
+
+    <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 px-3 py-2.5">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20 font-mono font-bold text-white text-xs">
+                    LW
+                </div>
+                <div>
+                    <h1 class="text-xs sm:text-sm font-semibold tracking-tight text-white flex items-center gap-2">
+                        Compactified Wavefront Liénard-Wiechert Solver
+                        <span id="badge-shells" class="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">M_T=128 | Kinematically Consistent Bernstein-Hermite</span>
+                    </h1>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2.5 text-[11px] font-mono bg-slate-950/90 px-2.5 py-1 rounded-lg border border-slate-800">
+                <div><span class="text-slate-500">β:</span> <span id="stat-beta" class="text-sky-400 font-semibold">0.8000</span></div>
+                <div class="h-3 w-px bg-slate-800"></div>
+                <div><span class="text-slate-500">γ:</span> <span id="stat-gamma" class="text-amber-400 font-semibold">1.67</span></div>
+                <div class="h-3 w-px bg-slate-800"></div>
+                <div><span class="text-slate-500">R_Nyq:</span> <span id="stat-nyquist" class="text-fuchsia-400 font-semibold">2.45L</span></div>
+                <div class="h-3 w-px bg-slate-800"></div>
+                <div><span id="stat-l2label" class="text-slate-500">GPU Shock L₂:</span> <span id="stat-l2err" class="text-emerald-400 font-semibold">0.42%</span></div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <!-- Left Column: Visualizations -->
+        <div class="lg:col-span-8 flex flex-col gap-3">
+            <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden canvas-glow flex flex-col">
+                <div class="flex flex-wrap items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-slate-900/90 text-xs gap-1.5">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="font-medium text-slate-200">GPU Retarded Wavefront Reconstruction</span>
+                        <span id="fps-readout" class="text-emerald-400 text-[10px] font-mono bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30">60 FPS</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button id="btn-mt" class="font-mono text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition" title="Cycle Shell Density M_T = 128, 512, 1024, 2048">
+                            Shells M_T: 128
+                        </button>
+                        <button id="btn-wavepool" class="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition">
+                            Wave Pool: ON
+                        </button>
+                        <button id="btn-impostors" class="font-mono text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/30 transition">
+                            3D Sphere Impostors: ON
+                        </button>
+                        <button id="btn-fibers" class="font-mono text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition">
+                            Shells & Rays: ON
+                        </button>
+                    </div>
+                </div>
+
+                <div class="relative w-full aspect-[4/3] sm:aspect-[16/10] bg-slate-950">
+                    <canvas id="glCanvas" class="w-full h-full block"></canvas>
+                    <canvas id="bulkCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing touch-none absolute inset-0"></canvas>
+                </div>
+
+                <div class="bg-slate-950 border-t border-slate-800/90 p-2.5 text-xs font-mono">
+                    <div class="flex flex-wrap items-center justify-between border-b border-slate-800/80 pb-1.5 mb-2 text-[11px] gap-1">
+                        <span class="font-sans font-medium text-slate-300">Drag <span class="text-sky-400 font-semibold">anywhere</span> to whip Source #0 (or drag <span class="text-emerald-400 font-semibold">green target</span> to move probe)</span>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-snap-crest" class="px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 hover:bg-fuchsia-500/30 text-[10px]">
+                                Snap Probe to Exact Shock Crest
+                            </button>
+                            <span id="probe-coords" class="text-amber-300 font-semibold">R_ret = 1.15 | θ_ret = 80.9°</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5 text-[10px]">
+                        <div class="bg-slate-900/90 p-1.5 rounded border border-sky-500/20">
+                            <div class="text-sky-400 font-semibold">GPU Readback E_total (Float32)</div>
+                            <div id="probe-compact" class="text-slate-200 mt-0.5 truncate">Ex:+0.42 Ey:-0.18</div>
+                            <div id="probe-vel-rad" class="text-[9px] text-slate-500">|E_vel|:0.12 |E_rad|:0.44</div>
+                        </div>
+                        <div class="bg-slate-900/90 p-1.5 rounded border border-emerald-500/20">
+                            <div class="text-emerald-400 font-semibold">Exact Analytical LW (Float64)</div>
+                            <div id="probe-exact" class="text-slate-200 mt-0.5 truncate">Ex:+0.43 Ey:-0.18</div>
+                            <div class="text-[9px] text-slate-500">Same Float32 Query Coords</div>
+                        </div>
+                        <div class="bg-slate-900/90 p-1.5 rounded border border-fuchsia-500/20">
+                            <div class="text-fuchsia-400 font-semibold">Worldline & Crest Error</div>
+                            <div id="probe-err" class="text-slate-200 mt-0.5 truncate">Probe Err: 0.42%</div>
+                            <div id="probe-dr" class="text-[9px] text-slate-400">Pos Δz: 1.1e-4 (Resolved)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Secondary Plots -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden flex flex-col">
+                    <div class="px-3 py-2 border-b border-slate-800/80 bg-slate-900/90 flex items-center justify-between text-xs">
+                        <span class="font-medium text-slate-200">Pulse-Crossing Δφ_obs ~ γ⁻³ Shock Sweep (Orbit-Centered)</span>
+                        <button id="btn-toggle-subview" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-sky-400 border border-slate-700 hover:bg-slate-700">
+                            Show Radial Ray
+                        </button>
+                    </div>
+                    <div class="px-3 py-1.5 bg-slate-950 border-b border-slate-900 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-slate-400">
+                        <span class="text-sky-400">― GPU Float32</span>
+                        <span class="text-emerald-400">-- Exact Float64</span>
+                        <span class="text-rose-400">― |ΔE| Error</span>
+                        <span id="subview-scale-label" class="text-amber-400">δφ_orb ∈ [-4γ⁻³, +4γ⁻³]</span>
+                    </div>
+                    <div class="relative w-full h-44 bg-slate-950 p-1">
+                        <canvas id="plotCanvas" class="w-full h-full block"></canvas>
+                    </div>
+                </div>
+
+                <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden flex flex-col">
+                    <div class="px-3 py-2 border-b border-slate-800/80 bg-slate-900/90 flex items-center justify-between text-xs">
+                        <span class="font-medium text-slate-200">Evolved Ring-History GPU Readback Suite (Table 1)</span>
+                        <button id="btn-run-suite" class="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition">
+                            Run Evolved GPU Suite
+                        </button>
+                    </div>
+                    <div class="relative w-full h-60 bg-slate-950 p-2 overflow-y-auto font-mono text-[10px] text-slate-300" id="suite-output">
+                        Executing evolved ring-buffer + GPU <code>gl.readPixels(RGBA32F)</code> verification suite...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Controls -->
+        <div class="lg:col-span-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <h2 class="text-xs sm:text-sm font-semibold text-white">Validation & Solver Controls</h2>
+                <div class="flex gap-1.5">
+                    <button id="btn-stress" class="px-2 py-1 rounded text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition">
+                        GPU Stress Mode: ON
+                    </button>
+                    <button id="btn-pause" class="px-2.5 py-1 rounded text-xs font-medium bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition">
+                        Pause
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-medium text-slate-300 mb-1.5">Benchmark Scenario</label>
+                <div class="grid grid-cols-2 gap-1.5 text-xs">
+                    <button data-motion="synchrotron" class="motion-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>1. Synchrotron Orbit</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Exact Circular LW Benchmark</div>
+                    </button>
+                    <button data-motion="uniform" class="motion-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>2. Uniform Motion (a=0)</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Zero Spurious Radiation Test</div>
+                    </button>
+                    <button data-motion="oscillator" class="motion-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>3. Harmonic Dipole</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Pre-Filtered Nyquist Horizon</div>
+                    </button>
+                    <button data-motion="swarm" class="motion-btn py-1.5 px-2 rounded-lg border border-emerald-500 bg-emerald-500/20 text-white font-medium text-left transition">
+                        <div>4. N-Body Swarm</div>
+                        <div class="text-[9px] text-emerald-300 font-mono">Multi-Source Ring Benchmark</div>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-medium text-slate-300 mb-1.5">Viewport Diagnostic Channel</label>
+                <div class="grid grid-cols-2 gap-1.5 text-xs">
+                    <button data-channel="total" class="channel-btn py-1.5 px-2 rounded-lg border border-sky-500 bg-sky-500/20 text-white font-medium text-left transition">
+                        <div>Compactified |E|</div>
+                        <div class="text-[9px] text-sky-300 font-mono">Retarded Shell Lookup</div>
+                    </button>
+                    <button data-channel="lw_split" class="channel-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>Split vs Exact LW</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Top: GPU | Bot: Exact</div>
+                    </button>
+                    <button data-channel="error_map" class="channel-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>Pointwise Error |ΔE|</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Shows Horizon Roll-Off</div>
+                    </button>
+                    <button data-channel="rad_only" class="channel-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition">
+                        <div>Radiation E_rad Only</div>
+                        <div class="text-[9px] text-slate-500 font-mono">Zero when accel a = 0!</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Interpolation & Kinematic Mode Toggles -->
+            <div class="bg-slate-950/90 p-2 rounded-lg border border-sky-500/30 flex flex-col gap-1.5 text-xs">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-sky-300 font-medium">Velocity / 4-Velocity Parameterization</div>
+                        <div id="velmode-desc" class="text-[9px] text-slate-400 font-mono">Proper 4-Vel u = γβ + Spline-Consistent Direction</div>
+                    </div>
+                    <button id="btn-velmode" class="px-2 py-1 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 font-mono text-[10px]">
+                        Mode: 4-Vel u=γβ
+                    </button>
+                </div>
+                <div class="flex items-center justify-between border-t border-slate-800/80 pt-1.5">
+                    <div>
+                        <div class="text-emerald-300 font-medium">Shell Transport & Pre-Sampling Filter</div>
+                        <div id="scheme-desc" class="text-[9px] text-slate-400 font-mono">2-Pt Hermite Ring + Norm-u + Horizon Taper</div>
+                    </div>
+                    <button id="btn-scheme" class="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono text-[10px]">
+                        Compare Eulerian
+                    </button>
+                </div>
+            </div>
+
+            <!-- Logarithmic Relativistic Slider -->
+            <div class="bg-slate-950/80 p-2.5 rounded-lg border border-slate-800/80">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-300 font-medium">Relativistic Speed β (Capped at 0.90c)</span>
+                    <span id="val-beta" class="font-mono text-sky-400 font-semibold">0.8000c (γ=1.67)</span>
+                </div>
+                <input id="slider-beta" type="range" min="0" max="1000" step="1" value="683" class="w-full">
+                <div class="flex justify-between text-[10px] font-mono text-slate-500 mt-1">
+                    <span>0.05c</span>
+                    <span>0.50c (γ=1.15)</span>
+                    <span>0.75c (γ=1.51)</span>
+                    <span>0.90c (γ=2.29)</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-slate-950/60 p-2 rounded-lg border border-sky-500/30">
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-sky-300">Grid Scale L</span>
+                        <span id="val-scale" class="font-mono text-sky-400">1.35</span>
+                    </div>
+                    <input id="slider-scale" type="range" min="0.40" max="2.60" step="0.05" value="1.35" class="w-full">
+                </div>
+                <div class="bg-slate-950/60 p-2 rounded-lg border border-amber-500/30">
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-amber-300">Plummer Core ε</span>
+                        <span id="val-eps" class="font-mono text-amber-400">0.06</span>
+                    </div>
+                    <input id="slider-eps" type="range" min="0.005" max="0.35" step="0.005" value="0.06" class="w-full">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/70">
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-emerald-300">Sources (N_p)</span>
+                        <span id="val-particles" class="font-mono text-emerald-400">32</span>
+                    </div>
+                    <input id="slider-particles" type="range" min="1" max="256" step="1" value="32" class="w-full">
+                </div>
+                <div class="bg-slate-950/60 p-2 rounded-lg border border-slate-800/70">
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-fuchsia-300">Orbit Freq ω</span>
+                        <span id="val-freq" class="font-mono text-fuchsia-400">1.6</span>
+                    </div>
+                    <input id="slider-freq" type="range" min="0.6" max="3.4" step="0.1" value="1.6" class="w-full">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const MAX_M_T = 2048;
+        const MAX_PARTICLES = 256;
+        const C_LIGHT = 2.35;
+        const RING_SIZE = 16384;
+        const DT_STEP = 0.00675;
+        const f32 = Math.fround;
+
+        // Strict IEEE-754 Float32 2D Euclidean norm (matches GLSL length(vec2) without Float64 intermediates!)
+        function f32Len(x, y) {
+            const xx = f32(x * x);
+            const yy = f32(y * y);
+            return f32(Math.sqrt(f32(xx + yy)));
+        }
+
+        // Smooth Slider [0, 1000] <-> Beta [0.05, 0.90]
+        function sliderToBeta(sliderVal) {
+            const u = Math.max(0, Math.min(1, sliderVal / 1000.0));
+            const oneMinusBeta = 0.95 * Math.pow(0.10 / 0.95, u);
+            return Math.min(0.90, Math.max(0.05, 1.0 - oneMinusBeta));
+        }
+
+        function betaToSlider(beta) {
+            const clamped = Math.min(0.90, Math.max(0.05, beta));
+            const u = Math.log((1.0 - clamped) / 0.95) / Math.log(0.10 / 0.95);
+            return Math.round(Math.max(0, Math.min(1000, u * 1000)));
+        }
+
+        const state = {
+            mT: 128,
+            kBin: 9,
+            numParticles: 32,
+            beta: 0.80,
+            gamma: 1 / Math.sqrt((1 - 0.80) * (1 + 0.80)),
+            omega: 1.6,
+            scaleL: 1.35,
+            softEps: 0.06,
+            motionMode: 'swarm',
+            channel: 'total',
+            subviewMode: 'shock_crest',
+            velMode: 2, // 0: Raw Beta, 1: Arc-Length Norm Beta, 2: Proper 4-Vel u = gamma*beta + Spline-Consistent Direction
+            useDiffusiveEulerian: false,
+            stressTestMode: true,
+            showWavePool: true,
+            showImpostors: true,
+            showDilatingFibers: true,
+            paused: false,
+            time: 2.50,
+            fps: 60,
+            probePos: { x: 0.95, y: 0.40 },
+            interactionTarget: null,
+            draggedSourceTarget: { x: 0, y: 0 },
+            sources: []
+        };
+
+        function getExactTrajectoryKinematics(partIdx, totalParts, t, betaOverride, motionOverride) {
+            const betaVal = betaOverride !== undefined ? betaOverride : state.beta;
+            const modeVal = motionOverride !== undefined ? motionOverride : state.motionMode;
+            const phaseOffset = (partIdx / Math.max(1, totalParts)) * 2 * Math.PI;
+            const charge = (partIdx % 2 === 0 || modeVal === 'synchrotron') ? 1.0 : -1.0;
+
+            if (modeVal === 'synchrotron') {
+                const omega = state.omega;
+                const v = betaVal * C_LIGHT;
+                const rOrb = Math.min(0.85, v / Math.max(0.5, omega));
+                const actualOmega = v / Math.max(0.05, rOrb);
+                const ang = actualOmega * t + phaseOffset;
+                const cosA = Math.cos(ang);
+                const sinA = Math.sin(ang);
+
+                return {
+                    x: rOrb * cosA,
+                    y: rOrb * sinA,
+                    bx: -betaVal * sinA,
+                    by: betaVal * cosA,
+                    bdx: (-betaVal * actualOmega * cosA) / C_LIGHT,
+                    bdy: (-betaVal * actualOmega * sinA) / C_LIGHT,
+                    charge: 1.0
+                };
+            } else if (modeVal === 'uniform') {
+                const period = 4.4;
+                const wrappedT = ((t % period) + period) % period - 0.5 * period;
+                const yOff = totalParts > 1 ? ((partIdx / (totalParts - 1)) - 0.5) * 1.2 : 0.0;
+                const bEff = betaVal * 0.55;
+                const vx = bEff * C_LIGHT;
+                return {
+                    x: vx * wrappedT,
+                    y: yOff,
+                    bx: bEff,
+                    by: 0.0,
+                    bdx: 0.0,
+                    bdy: 0.0,
+                    charge
+                };
+            } else if (modeVal === 'swarm') {
+                // Multi-body Keplerian / Atomic Rosette Swarm:
+                // Each particle orbits on a golden-ratio tilted rosette / precessing ellipse
+                const goldenAngle = partIdx * 2.399963229728653;
+                const shellLayer = (partIdx % 4) / 3.0;
+                const rBase = 0.28 + 0.58 * shellLayer;
+                const ecc = 0.28 * Math.sin(partIdx * 1.7 + 0.5);
+                const orbitFreq = state.omega * (0.75 + 0.55 * (1.0 - shellLayer * 0.5));
+                const precessFreq = 0.22 * state.omega * ((partIdx % 2 === 0) ? 1.0 : -1.0);
+
+                const theta = orbitFreq * t + goldenAngle;
+                const phiTilt = precessFreq * t + goldenAngle * 0.5;
+
+                // Unrotated ellipse in local orbital plane (u, v)
+                const aSemi = rBase;
+                const bSemi = rBase * Math.sqrt(Math.max(0.25, 1.0 - ecc * ecc));
+                const cosT = Math.cos(theta), sinT = Math.sin(theta);
+                const u = aSemi * cosT;
+                const v = bSemi * sinT;
+                const du = -aSemi * orbitFreq * sinT;
+                const dv =  bSemi * orbitFreq * cosT;
+                const d2u = -aSemi * orbitFreq * orbitFreq * cosT;
+                const d2v = -bSemi * orbitFreq * orbitFreq * sinT;
+
+                const cosP = Math.cos(phiTilt), sinP = Math.sin(phiTilt);
+                const x = u * cosP - v * sinP;
+                const y = u * sinP + v * cosP;
+
+                const vxRaw = (du * cosP - dv * sinP) - precessFreq * y;
+                const vyRaw = (du * sinP + dv * cosP) + precessFreq * x;
+                const axRaw = (d2u * cosP - d2v * sinP) - 2.0 * precessFreq * vyRaw - precessFreq * precessFreq * x;
+                const ayRaw = (d2u * sinP + d2v * cosP) + 2.0 * precessFreq * vxRaw - precessFreq * precessFreq * y;
+
+                // Scale speed smoothly so max swarm speed respects betaVal
+                const speedRaw = Math.hypot(vxRaw, vyRaw);
+                const maxAllowedV = betaVal * C_LIGHT;
+                const vScale = speedRaw > maxAllowedV ? (maxAllowedV / speedRaw) : 1.0;
+
+                return {
+                    x,
+                    y,
+                    bx: (vxRaw * vScale) / C_LIGHT,
+                    by: (vyRaw * vScale) / C_LIGHT,
+                    bdx: (axRaw * vScale) / (C_LIGHT * C_LIGHT),
+                    bdy: (ayRaw * vScale) / (C_LIGHT * C_LIGHT),
+                    charge
+                };
+            } else {
+                const omega = state.omega;
+                const maxA = Math.min(0.75, (betaVal * C_LIGHT) / Math.max(0.4, omega));
+                const ang = omega * t + phaseOffset;
+                const sinA = Math.sin(ang);
+                const cosA = Math.cos(ang);
+                const yOff = totalParts > 1 ? ((partIdx / (totalParts - 1)) - 0.5) * 1.1 : 0.0;
+                return {
+                    x: maxA * sinA,
+                    y: yOff,
+                    bx: (maxA * omega * cosA) / C_LIGHT,
+                    by: 0.0,
+                    bdx: (-maxA * omega * omega * sinA) / (C_LIGHT * C_LIGHT),
+                    bdy: 0.0,
+                    charge
+                };
+            }
+        }
+
+        // Exact Retarded-Tangent Coordinate Construction (Eq. 8):
+        function getExactShockCrestPoint(rRetDesired, tObs, betaOverride) {
+            const tRetStar = tObs - rRetDesired / C_LIGHT;
+            const kin = getExactTrajectoryKinematics(0, 1, tRetStar, betaOverride, 'synchrotron');
+            const bMag = Math.hypot(kin.bx, kin.by);
+            const bHatX = bMag > 1e-12 ? kin.bx / bMag : 1.0;
+            const bHatY = bMag > 1e-12 ? kin.by / bMag : 0.0;
+            const crestX = kin.x + rRetDesired * bHatX;
+            const crestY = kin.y + rRetDesired * bHatY;
+            return {
+                x: crestX,
+                y: crestY,
+                rObs: Math.hypot(crestX, crestY),
+                phiObs: Math.atan2(crestY, crestX),
+                emitX: kin.x,
+                emitY: kin.y,
+                bHatX,
+                bHatY,
+                tRetStar
+            };
+        }
+
+        function getPulseCrossingSweepPoints(rRetDesired, tObs, betaVal, nSamples) {
+            const gammaVal = 1.0 / Math.sqrt((1.0 - betaVal) * (1.0 + betaVal));
+            const crest = getExactShockCrestPoint(rRetDesired, tObs, betaVal);
+            const halfSweep = Math.min(0.45, Math.max(1e-6, 4.0 * Math.pow(gammaVal, -3.0)));
+            const pts = [];
+            for (let k = 0; k < nSamples; k++) {
+                const u = (k / (nSamples - 1)) * 2.0 - 1.0;
+                const ang = crest.phiObs + u * halfSweep;
+                const x64 = crest.rObs * Math.cos(ang);
+                const y64 = crest.rObs * Math.sin(ang);
+                pts.push({
+                    x: f32(x64),
+                    y: f32(y64),
+                    x64,
+                    y64
+                });
+            }
+            return { pts, halfSweep, crest };
+        }
+
+        function createCompactifiedSource(idx, totalParts, t0) {
+            const src = {
+                x: 0, y: 0, bx: 0, by: 0, bdx: 0, bdy: 0, charge: 1.0,
+                 returningToOrbit: false,
+                emitX: new Float32Array(MAX_M_T),
+                emitY: new Float32Array(MAX_M_T),
+                emitUx: new Float32Array(MAX_M_T),
+                emitUy: new Float32Array(MAX_M_T),
+                emitBdx: new Float32Array(MAX_M_T),
+                emitBdy: new Float32Array(MAX_M_T),
+                emitR: new Float32Array(MAX_M_T),
+                emitX64: new Float64Array(MAX_M_T),
+                emitY64: new Float64Array(MAX_M_T),
+                emitUx64: new Float64Array(MAX_M_T),
+                emitUy64: new Float64Array(MAX_M_T),
+                emitBdx64: new Float64Array(MAX_M_T),
+                emitBdy64: new Float64Array(MAX_M_T),
+                emitR64: new Float64Array(MAX_M_T),
+                nextX: new Float32Array(MAX_M_T),
+                nextY: new Float32Array(MAX_M_T),
+                nextUx: new Float32Array(MAX_M_T),
+                nextUy: new Float32Array(MAX_M_T),
+                nextBdx: new Float32Array(MAX_M_T),
+                nextBdy: new Float32Array(MAX_M_T),
+                ringHead: 0,
+                ringX: new Float64Array(RING_SIZE),
+                ringY: new Float64Array(RING_SIZE),
+                ringBx: new Float64Array(RING_SIZE),
+                ringBy: new Float64Array(RING_SIZE),
+                ringBdx: new Float64Array(RING_SIZE),
+                ringBdy: new Float64Array(RING_SIZE)
+            };
+            seedExactRetardedHistory(src, idx, totalParts, t0);
+            return src;
+        }
+
+        function packVelocityForStorage(bx, by, velMode) {
+            if (velMode === 2) {
+                const bMag = Math.min(0.9999995, Math.hypot(bx, by));
+                const gamma = 1.0 / Math.sqrt(Math.max(1e-14, (1.0 - bMag) * (1.0 + bMag)));
+                return { ux: f32(gamma * bx), uy: f32(gamma * by), ux64: gamma * bx, uy64: gamma * by };
+            }
+            return { ux: f32(bx), uy: f32(by), ux64: bx, uy64: by };
+        }
+
+        // Fixed CPU Ring Buffer Sampler:
+        // Uses 2-point Kinematical Cubic Hermite interpolation on [k1, k2] for position (with h11 * ty2 fixed!)
+        // + 4-tap Catmull-Rom with Arc-Length Speed Preservation for velocity.
+        function sampleFromRingBuffer(src, stepsBackFloat) {
+            const sClamped = Math.max(0.0, Math.min(RING_SIZE - 3.001, stepsBackFloat));
+            const k1 = Math.floor(sClamped);
+            const k0 = Math.max(0, k1 - 1);
+            const k2 = Math.min(RING_SIZE - 1, k1 + 1);
+            const k3 = Math.min(RING_SIZE - 1, k1 + 2);
+
+            const t = sClamped - k1;
+            const t2 = t * t;
+            const t3 = t2 * t;
+
+            const i0 = (src.ringHead - k0 + RING_SIZE) % RING_SIZE;
+            const i1 = (src.ringHead - k1 + RING_SIZE) % RING_SIZE;
+            const i2 = (src.ringHead - k2 + RING_SIZE) % RING_SIZE;
+            const i3 = (src.ringHead - k3 + RING_SIZE) % RING_SIZE;
+
+            const stepScale = C_LIGHT * DT_STEP;
+            const tx1 = -src.ringBx[i1] * stepScale;
+            const ty1 = -src.ringBy[i1] * stepScale;
+            const tx2 = -src.ringBx[i2] * stepScale;
+            const ty2 = -src.ringBy[i2] * stepScale;
+
+            const h00 =  2.0 * t3 - 3.0 * t2 + 1.0;
+            const h10 =        t3 - 2.0 * t2 + t;
+            const h01 = -2.0 * t3 + 3.0 * t2;
+            const h11 =        t3 -       t2;
+
+            const x = h00 * src.ringX[i1] + h10 * tx1 + h01 * src.ringX[i2] + h11 * tx2;
+            const y = h00 * src.ringY[i1] + h10 * ty1 + h01 * src.ringY[i2] + h11 * ty2;
+
+            const w0 = -0.5 * t3 + t2 - 0.5 * t;
+            const w1 =  1.5 * t3 - 2.5 * t2 + 1.0;
+            const w2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
+            const w3 =  0.5 * t3 - 0.5 * t2;
+
+            let rawBx, rawBy, bdx, bdy;
+            if (k1 === 0) {
+                const bdx1 = -src.ringBdx[i1] * stepScale;
+                const bdy1 = -src.ringBdy[i1] * stepScale;
+                const bdx2 = -src.ringBdx[i2] * stepScale;
+                const bdy2 = -src.ringBdy[i2] * stepScale;
+                rawBx = h00 * src.ringBx[i1] + h10 * bdx1 + h01 * src.ringBx[i2] + h11 * bdx2;
+                rawBy = src.ringBy[i1] * h00 + h10 * bdy1 + h01 * src.ringBy[i2] + h11 * bdy2;
+                bdx = src.ringBdx[i1] + t * (src.ringBdx[i2] - src.ringBdx[i1]);
+                bdy = src.ringBdy[i1] + t * (src.ringBdy[i2] - src.ringBdy[i1]);
+            } else {
+                rawBx = src.ringBx[i0] * w0 + src.ringBx[i1] * w1 + src.ringBx[i2] * w2 + src.ringBx[i3] * w3;
+                rawBy = src.ringBy[i0] * w0 + src.ringBy[i1] * w1 + src.ringBy[i2] * w2 + src.ringBy[i3] * w3;
+                bdx = src.ringBdx[i0] * w0 + src.ringBdx[i1] * w1 + src.ringBdx[i2] * w2 + src.ringBdx[i3] * w3;
+                bdy = src.ringBdy[i0] * w0 + src.ringBdy[i1] * w1 + src.ringBdy[i2] * w2 + src.ringBdy[i3] * w3;
+            }
+
+            const bMag1 = Math.hypot(src.ringBx[i1], src.ringBy[i1]);
+            const bMag2 = Math.hypot(src.ringBx[i2], src.ringBy[i2]);
+            const bTarget = bMag1 + t * (bMag2 - bMag1);
+            const rawBMag = Math.hypot(rawBx, rawBy);
+            const bScale = rawBMag > 1e-12 ? (bTarget / rawBMag) : 1.0;
+
+            return {
+                x,
+                y,
+                bx: rawBx * bScale,
+                by: rawBy * bScale,
+                bdx,
+                bdy
+            };
+        }
+
+        // Populates the compactified shells directly from the evolved CPU Ring Buffer
+        // gridMode: 'compactified' (default), 'uniform', 'log' (exponential adaptive), or 'power2' (quadratic adaptive)
+        function populateShellsFromRingBuffer(src, M, velMode, dt, uniformMaxR, gridMode) {
+            const dTheta = Math.PI / M;
+            const orbitLambda = (2.0 * Math.PI * C_LIGHT) / Math.max(0.5, state.omega);
+            const gMode = gridMode || (uniformMaxR !== undefined && uniformMaxR > 0 ? 'uniform' : 'compactified');
+            const rMaxTarget = uniformMaxR || 220.0;
+
+            for (let m = 0; m < M; m++) {
+                const u = (m + 0.5) / M;
+                let rShell64, rShellF32, dR;
+                if (gMode === 'uniform') {
+                    dR = rMaxTarget / M;
+                    rShell64 = (m + 0.5) * dR;
+                    rShellF32 = f32(rShell64);
+                } else if (gMode === 'log') {
+                    // Exponential / Logarithmic Adaptive Grid: R(u) = r0 * (exp(alpha * u) - 1) spanning [0, rMaxTarget]
+                    const r0 = 0.05;
+                    const alpha = Math.log(1.0 + rMaxTarget / r0);
+                    rShell64 = r0 * (Math.exp(alpha * u) - 1.0);
+                    rShellF32 = f32(rShell64);
+                    dR = (r0 * alpha * Math.exp(alpha * u)) / M;
+                } else if (gMode === 'power2') {
+                    // Quadratic / Power-Law Adaptive Grid: R(u) = rMaxTarget * u^2 spanning [0, rMaxTarget]
+                    rShell64 = rMaxTarget * u * u;
+                    rShellF32 = f32(rShell64);
+                    dR = (2.0 * rMaxTarget * u) / M;
+                } else {
+                    const th = (m + 0.5) * dTheta;
+                    rShell64 = state.scaleL * Math.tan(0.5 * th);
+                    rShellF32 = f32(f32(state.scaleL) * f32(Math.tan(f32(0.5 * th))));
+                    dR = (state.scaleL * dTheta) / (1.0 + Math.cos(th));
+                }
+
+                const stepsBackCenter = (rShellF32 / C_LIGHT) / dt;
+                const stepsBackCenter64 = (rShell64 / C_LIGHT) / dt;
+                const filterRatio = dR / (0.5 * orbitLambda);
+
+                let sample, sample64;
+                if (filterRatio > 0.25 && gMode === 'compactified') {
+                    const dSteps = Math.min((dR / C_LIGHT) / dt, (2.0 * Math.PI / state.omega) / dt);
+                    const s0 = sampleFromRingBuffer(src, stepsBackCenter - 0.35 * dSteps);
+                    const s1 = sampleFromRingBuffer(src, stepsBackCenter);
+                    const s2 = sampleFromRingBuffer(src, stepsBackCenter + 0.35 * dSteps);
+                    const wNyq = Math.exp(-Math.pow(filterRatio, 4.0));
+
+                    const avgBx = 0.25 * s0.bx + 0.5 * s1.bx + 0.25 * s2.bx;
+                    const avgBy = 0.25 * s0.by + 0.5 * s1.by + 0.25 * s2.by;
+                    const bTarget = 0.25 * Math.hypot(s0.bx, s0.by) + 0.5 * Math.hypot(s1.bx, s1.by) + 0.25 * Math.hypot(s2.bx, s2.by);
+                    const avgBMag = Math.hypot(avgBx, avgBy);
+                    const scaleB = avgBMag > 1e-12 ? (bTarget / avgBMag) : 1.0;
+
+                    sample = {
+                        x: s1.x,
+                        y: s1.y,
+                        bx: avgBx * scaleB,
+                        by: avgBy * scaleB,
+                        bdx: (0.25 * s0.bdx + 0.5 * s1.bdx + 0.25 * s2.bdx) * wNyq,
+                        bdy: (0.25 * s0.bdy + 0.5 * s1.bdy + 0.25 * s2.bdy) * wNyq
+                    };
+                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64);
+                } else {
+                    sample = sampleFromRingBuffer(src, stepsBackCenter);
+                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64);
+                }
+
+                const packedV = packVelocityForStorage(sample.bx, sample.by, velMode);
+                const packedV64 = packVelocityForStorage(sample64.bx, sample64.by, velMode);
+
+                src.emitX[m] = f32(sample.x);
+                src.emitY[m] = f32(sample.y);
+                src.emitUx[m] = packedV.ux;
+                src.emitUy[m] = packedV.uy;
+                src.emitBdx[m] = f32(sample.bdx);
+                src.emitBdy[m] = f32(sample.bdy);
+                src.emitR[m] = rShellF32;
+
+                src.emitX64[m] = sample64.x;
+                src.emitY64[m] = sample64.y;
+                src.emitUx64[m] = packedV64.ux64;
+                src.emitUy64[m] = packedV64.uy64;
+                src.emitBdx64[m] = sample64.bdx;
+                src.emitBdy64[m] = sample64.bdy;
+                src.emitR64[m] = rShell64;
+            }
+
+            const maxSub = f32(0.99995);
+            for (let m = 0; m < M - 1; m++) {
+                const r1 = src.emitR[m];
+                const r2 = src.emitR[m + 1];
+                const dR = f32(Math.max(f32(1e-6), f32(r2 - r1)));
+                const dx = f32(src.emitX[m + 1] - src.emitX[m]);
+                const dy = f32(src.emitY[m + 1] - src.emitY[m]);
+                const chordSpeed = f32(f32Len(dx, dy) / dR);
+                if (chordSpeed > maxSub) {
+                    const shrink = f32(maxSub / chordSpeed);
+                    src.emitX[m + 1] = f32(src.emitX[m] + f32(dx * shrink));
+                    src.emitY[m + 1] = f32(src.emitY[m] + f32(dy * shrink));
+                }
+            }
+        }
+
+        function seedExactRetardedHistory(src, idx, totalParts, t0, betaOverride, motionOverride, mTOverride, velModeOverride, uniformMaxR, gridMode) {
+            const M = mTOverride || state.mT;
+            const vMode = velModeOverride !== undefined ? velModeOverride : state.velMode;
+            const nowKin = getExactTrajectoryKinematics(idx, totalParts, t0, betaOverride, motionOverride);
+            src.x = nowKin.x; src.y = nowKin.y;
+            src.bx = nowKin.bx; src.by = nowKin.by;
+            src.bdx = nowKin.bdx; src.bdy = nowKin.bdy;
+            src.charge = nowKin.charge;
+
+            src.ringHead = 0;
+            for (let k = 0; k < RING_SIZE; k++) {
+                const tPast = t0 - k * DT_STEP;
+                const kin = getExactTrajectoryKinematics(idx, totalParts, tPast, betaOverride, motionOverride);
+                const rIdx = (RING_SIZE - k) % RING_SIZE;
+                src.ringX[rIdx] = kin.x;
+                src.ringY[rIdx] = kin.y;
+                src.ringBx[rIdx] = kin.bx;
+                src.ringBy[rIdx] = kin.by;
+                src.ringBdx[rIdx] = kin.bdx;
+                src.ringBdy[rIdx] = kin.bdy;
+            }
+
+            populateShellsFromRingBuffer(src, M, vMode, DT_STEP, uniformMaxR, gridMode);
+        }
+
+        function initSources() {
+            state.sources = [];
+            for (let i = 0; i < MAX_PARTICLES; i++) {
+                state.sources.push(createCompactifiedSource(i, state.numParticles, state.time));
+            }
+            reseedAllSources();
+        }
+
+        function reseedAllSources() {
+            for (let i = 0; i < state.numParticles; i++) {
+                seedExactRetardedHistory(state.sources[i], i, state.numParticles, state.time);
+            }
+        }
+
+        // Converged Float64 Analytical Reference (28-step bracketed bisection + 10-step Newton-Raphson)
+        function evaluateExactAnalyticalLW(px, py, t, betaOverride, motionOverride) {
+            let totEx = 0, totEy = 0;
+            let totVelMag = 0, totRadMag = 0;
+            let primaryR = 0, primaryPosX = 0, primaryPosY = 0;
+
+            const N = state.numParticles;
+            for (let i = 0; i < N; i++) {
+                let tLow = t - 260.0 / C_LIGHT;
+                let tHigh = t;
+                for (let b = 0; b < 32; b++) {
+                    const tMid = 0.5 * (tLow + tHigh);
+                    const kin = getExactTrajectoryKinematics(i, N, tMid, betaOverride, motionOverride);
+                    const fMid = C_LIGHT * (t - tMid) - Math.hypot(px - kin.x, py - kin.y);
+                    if (fMid > 0) tLow = tMid; else tHigh = tMid;
+                }
+                let tRet = 0.5 * (tLow + tHigh);
+                for (let iter = 0; iter < 12; iter++) {
+                    const kin = getExactTrajectoryKinematics(i, N, tRet, betaOverride, motionOverride);
+                    const dx = px - kin.x;
+                    const dy = py - kin.y;
+                    const dist = Math.hypot(dx, dy);
+                    const f = C_LIGHT * (t - tRet) - dist;
+                    if (Math.abs(f) < 1e-13) break;
+                    const nx = dist > 1e-12 ? dx / dist : 1.0;
+                    const ny = dist > 1e-12 ? dy / dist : 0.0;
+                    const df = -C_LIGHT * Math.max(1e-11, 1.0 - (nx * kin.bx + ny * kin.by));
+                    const cand = tRet - f / df;
+                    tRet = (cand >= tLow && cand <= tHigh) ? cand : 0.5 * (tLow + tHigh);
+                    if (f > 0) tLow = tRet; else tHigh = tRet;
+                }
+
+                const retKin = getExactTrajectoryKinematics(i, N, tRet, betaOverride, motionOverride);
+                const dx = px - retKin.x, dy = py - retKin.y;
+                const r2 = dx * dx + dy * dy;
+                const r = Math.sqrt(r2);
+                const rSoft2 = r2 + state.softEps * state.softEps;
+                const rSoft = Math.sqrt(rSoft2);
+                const nx = r > 1e-12 ? dx / r : 1.0;
+                const ny = r > 1e-12 ? dy / r : 0.0;
+
+                const bMag = Math.hypot(retKin.bx, retKin.by);
+                const oneMinusBeta2 = (1.0 - bMag) * (1.0 + bMag);
+                const kappa = Math.max(1e-11, 1.0 - (nx * retKin.bx + ny * retKin.by));
+                const kappa3 = kappa * kappa * kappa;
+
+                const velPref = (retKin.charge * oneMinusBeta2) / (kappa3 * rSoft2);
+                const eVelX = velPref * (nx - retKin.bx);
+                const eVelY = velPref * (ny - retKin.by);
+
+                const ux = nx - retKin.bx, uy = ny - retKin.by;
+                const crossZ = ux * retKin.bdy - uy * retKin.bdx;
+                const radPref = retKin.charge / (kappa3 * rSoft);
+                const eRadX = radPref * (ny * crossZ);
+                const eRadY = radPref * (-nx * crossZ);
+
+                totEx += eVelX + eRadX;
+                totEy += eVelY + eRadY;
+                totVelMag += Math.hypot(eVelX, eVelY);
+                totRadMag += Math.hypot(eRadX, eRadY);
+                if (i === 0) {
+                    primaryR = r;
+                    primaryPosX = retKin.x;
+                    primaryPosY = retKin.y;
+                }
+            }
+
+            return {
+                ex: totEx, ey: totEy,
+                mag: Math.hypot(totEx, totEy),
+                velMag: totVelMag, radMag: totRadMag,
+                rRet: primaryR, emitX: primaryPosX, emitY: primaryPosY
+            };
+        }
+
+        function getKnotBetaFloat32(src, mIdx, velMode) {
+            const ux = src.emitUx[mIdx];
+            const uy = src.emitUy[mIdx];
+            if (velMode === 2) {
+                const uSq = f32(f32(ux * ux) + f32(uy * uy));
+                const invGamma = f32(1.0 / f32(Math.sqrt(f32(1.0 + uSq))));
+                return { bx: f32(ux * invGamma), by: f32(uy * invGamma) };
+            }
+            return { bx: ux, by: uy };
+        }
+
+        function computeBernsteinAlphaFloat32(vSecX, vSecY, v1RawX, v1RawY, maxSub) {
+            const v1Sq = f32(f32(v1RawX * v1RawX) + f32(v1RawY * v1RawY));
+            const maxSq = f32(maxSub * maxSub);
+            if (v1Sq <= maxSq) return f32(1.0);
+
+            const dx = f32(v1RawX - vSecX);
+            const dy = f32(v1RawY - vSecY);
+            const a = f32(f32(dx * dx) + f32(dy * dy));
+            if (a <= f32(1e-12)) return f32(0.0);
+
+            const bHalf = f32(f32(vSecX * dx) + f32(vSecY * dy));
+            const c = f32(f32(f32(vSecX * vSecX) + f32(vSecY * vSecY)) - maxSq);
+            if (c >= f32(0.0)) return f32(0.0);
+
+            const disc = f32(Math.max(f32(0.0), f32(f32(bHalf * bHalf) - f32(a * c))));
+            const alpha = f32(f32(-bHalf + f32(Math.sqrt(disc))) / a);
+            return f32(Math.max(f32(0.0), Math.min(f32(1.0), alpha)));
+        }
+
+        // Strict IEEE-754 Float32 Kinematical Hermite Interpolator (uses f32Len instead of Float64-backed Math.hypot!)
+        function sampleSourceHistoryFloat32(src, mFloat, M, velMode) {
+            const mClamped = f32(Math.max(0.0, Math.min(f32(M - 1.0001), f32(mFloat))));
+            const m1 = Math.floor(mClamped);
+            const m0 = Math.max(0, m1 - 1);
+            const m2 = Math.min(M - 1, m1 + 1);
+            const m3 = Math.min(M - 1, m1 + 2);
+
+            const t = f32(mClamped - m1);
+            const t2 = f32(t * t);
+            const t3 = f32(t2 * t);
+
+            const r1 = src.emitR[m1];
+            const r2 = src.emitR[m2];
+            const dR = m2 > m1 ? f32(Math.max(f32(1e-6), f32(r2 - r1))) : f32(1e-6);
+            const s = m2 > m1 ? t : f32(0.0);
+            const dRSub = f32(s * dR);
+
+            const x1 = src.emitX[m1], y1 = src.emitY[m1];
+            const x2 = src.emitX[m2], y2 = src.emitY[m2];
+            const dxChord = f32(x2 - x1), dyChord = f32(y2 - y1);
+            const invDR = f32(1.0 / dR);
+            const maxSubluminal = f32(0.99995);
+
+            let vSecX = f32(dxChord * invDR);
+            let vSecY = f32(dyChord * invDR);
+            const vSecMag = f32Len(vSecX, vSecY);
+            if (vSecMag > maxSubluminal) {
+                const sc = f32(maxSubluminal / vSecMag);
+                vSecX = f32(vSecX * sc);
+                vSecY = f32(vSecY * sc);
+            }
+
+            const kb1 = getKnotBetaFloat32(src, m1, velMode);
+            const kb2 = getKnotBetaFloat32(src, m2, velMode);
+            let b1x = kb1.bx, b1y = kb1.by;
+            let b2x = kb2.bx, b2y = kb2.by;
+            const b1Mag = f32Len(b1x, b1y);
+            if (b1Mag > maxSubluminal) { b1x = f32(b1x * f32(maxSubluminal / b1Mag)); b1y = f32(b1y * f32(maxSubluminal / b1Mag)); }
+            const b2Mag = f32Len(b2x, b2y);
+            if (b2Mag > maxSubluminal) { b2x = f32(b2x * f32(maxSubluminal / b2Mag)); b2y = f32(b2y * f32(maxSubluminal / b2Mag)); }
+
+            const v1RawX = f32(f32(3.0 * vSecX) + f32(b1x + b2x));
+            const v1RawY = f32(f32(3.0 * vSecY) + f32(b1y + b2y));
+
+            const alpha = computeBernsteinAlphaFloat32(vSecX, vSecY, v1RawX, v1RawY, maxSubluminal);
+            const oma = f32(1.0 - alpha);
+
+            const v0x = f32(f32(oma * vSecX) - f32(alpha * b1x));
+            const v0y = f32(f32(oma * vSecY) - f32(alpha * b1y));
+            const v1x = f32(vSecX + f32(alpha * f32(v1RawX - vSecX)));
+            const v1y = f32(vSecY + f32(alpha * f32(v1RawY - vSecY)));
+            const v2x = f32(f32(oma * vSecX) - f32(alpha * b2x));
+            const v2y = f32(f32(oma * vSecY) - f32(alpha * b2y));
+
+            const tx1 = f32(v0x * dR);
+            const ty1 = f32(v0y * dR);
+            const tx2 = f32(v2x * dR);
+            const ty2 = f32(v2y * dR);
+
+            const s2 = f32(s * s);
+            const s3 = f32(s2 * s);
+            const h10 = f32(s3 - f32(2.0 * s2) + s);
+            const h01 = f32(f32(-2.0 * s3) + f32(3.0 * s2));
+            const h11 = f32(s3 - s2);
+
+            const dxSub = f32(f32(h01 * dxChord) + f32(h10 * tx1) + f32(h11 * tx2));
+            const dySub = f32(f32(h01 * dyChord) + f32(h10 * ty1) + f32(h11 * ty2));
+            const x = f32(x1 + dxSub);
+            const y = f32(y1 + dySub);
+
+            const oms = f32(1.0 - s);
+            const b0 = f32(oms * oms);
+            const b1 = f32(2.0 * f32(s * oms));
+            const b2 = s2;
+            const dzdRx = f32(f32(b0 * v0x) + f32(b1 * v1x) + f32(b2 * v2x));
+            const dzdRy = f32(f32(b0 * v0y) + f32(b1 * v1y) + f32(b2 * v2y));
+            const splineVelX = f32(-dzdRx);
+            const splineVelY = f32(-dzdRy);
+            const splineVelMag = f32Len(splineVelX, splineVelY);
+
+            const w0 = f32(f32(-0.5 * t3) + f32(t2 - f32(0.5 * t)));
+            const w1 = f32(f32(1.5 * t3) - f32(2.5 * t2) + 1.0);
+            const w2 = f32(f32(-1.5 * t3) + f32(2.0 * t2) + f32(0.5 * t));
+            const w3 = f32(f32(0.5 * t3) - f32(0.5 * t2));
+
+            let bx, by, bHatX, bHatY, bMag, oneMinusBeta2;
+            if (velMode === 2) {
+                const uMag1 = f32Len(src.emitUx[m1], src.emitUy[m1]);
+                const uMag2 = f32Len(src.emitUx[m2], src.emitUy[m2]);
+                const uTarget = f32(uMag1 + f32(t * f32(uMag2 - uMag1)));
+                bHatX = splineVelMag > 1e-7 ? f32(splineVelX / splineVelMag) : f32(1.0);
+                bHatY = splineVelMag > 1e-7 ? f32(splineVelY / splineVelMag) : f32(0.0);
+                const uSq = f32(uTarget * uTarget);
+                const gamma = f32(Math.sqrt(f32(1.0 + uSq)));
+                bMag = f32(uTarget / gamma);
+                bx = f32(bHatX * bMag);
+                by = f32(bHatY * bMag);
+                oneMinusBeta2 = f32(1.0 / f32(1.0 + uSq));
+            } else if (velMode === 1) {
+                const bMag1 = f32Len(src.emitUx[m1], src.emitUy[m1]);
+                const bMag2 = f32Len(src.emitUx[m2], src.emitUy[m2]);
+                const bTarget = f32(bMag1 + f32(t * f32(bMag2 - bMag1)));
+                bHatX = splineVelMag > 1e-7 ? f32(splineVelX / splineVelMag) : f32(1.0);
+                bHatY = splineVelMag > 1e-7 ? f32(splineVelY / splineVelMag) : f32(0.0);
+                bMag = f32(Math.min(0.9999995, bTarget));
+                bx = f32(bHatX * bMag);
+                by = f32(bHatY * bMag);
+                oneMinusBeta2 = f32(f32(1.0 - bMag) * f32(1.0 + bMag));
+            } else {
+                const rawUx = f32(f32(src.emitUx[m0] * w0) + f32(src.emitUx[m1] * w1) + f32(src.emitUx[m2] * w2) + f32(src.emitUx[m3] * w3));
+                const rawUy = f32(f32(src.emitUy[m0] * w0) + f32(src.emitUy[m1] * w1) + f32(src.emitUy[m2] * w2) + f32(src.emitUy[m3] * w3));
+                bx = rawUx;
+                by = rawUy;
+                bMag = f32(Math.min(0.9999995, f32Len(bx, by)));
+                bHatX = bMag > 1e-7 ? f32(bx / bMag) : f32(1.0);
+                bHatY = bMag > 1e-7 ? f32(by / bMag) : f32(0.0);
+                oneMinusBeta2 = f32(f32(1.0 - bMag) * f32(1.0 + bMag));
+            }
+
+            const bdx = f32(f32(src.emitBdx[m0] * w0) + f32(src.emitBdx[m1] * w1) + f32(src.emitBdx[m2] * w2) + f32(src.emitBdx[m3] * w3));
+            const bdy = f32(f32(src.emitBdy[m0] * w0) + f32(src.emitBdy[m1] * w1) + f32(src.emitBdy[m2] * w2) + f32(src.emitBdy[m3] * w3));
+
+            return { x, y, x1, y1, dxSub, dySub, r1, dRSub, dRdm: dR, dzdRx, dzdRy, bx, by, bHatX, bHatY, bMag, oneMinusBeta2, bdx, bdy };
+        }
+
+        // Pure Float64 Compactified Evaluator (Separates Spatial Spline Convergence from Float32 Arithmetic Floor)
+        function evaluateCompactifiedFloat64(px, py, M, velMode) {
+            const src = state.sources[0];
+            let mLow = 0.0, mHigh = M - 1.0001;
+
+            function sample64(mFloat) {
+                const mClamped = Math.max(0.0, Math.min(M - 1.0001, mFloat));
+                const m1 = Math.floor(mClamped);
+                const m0 = Math.max(0, m1 - 1);
+                const m2 = Math.min(M - 1, m1 + 1);
+                const m3 = Math.min(M - 1, m1 + 2);
+                const s = m2 > m1 ? (mClamped - m1) : 0.0;
+                const s2 = s * s, s3 = s2 * s;
+                const r1 = src.emitR64[m1], r2 = src.emitR64[m2];
+                const dR = m2 > m1 ? Math.max(1e-12, r2 - r1) : 1e-12;
+                const dRSub = s * dR;
+
+                const uSq1 = src.emitUx64[m1] * src.emitUx64[m1] + src.emitUy64[m1] * src.emitUy64[m1];
+                const uSq2 = src.emitUx64[m2] * src.emitUx64[m2] + src.emitUy64[m2] * src.emitUy64[m2];
+                const b1x = velMode === 2 ? src.emitUx64[m1] / Math.sqrt(1.0 + uSq1) : src.emitUx64[m1];
+                const b1y = velMode === 2 ? src.emitUy64[m1] / Math.sqrt(1.0 + uSq1) : src.emitUy64[m1];
+                const b2x = velMode === 2 ? src.emitUx64[m2] / Math.sqrt(1.0 + uSq2) : src.emitUx64[m2];
+                const b2y = velMode === 2 ? src.emitUy64[m2] / Math.sqrt(1.0 + uSq2) : src.emitUy64[m2];
+
+                const dxChord = src.emitX64[m2] - src.emitX64[m1];
+                const dyChord = src.emitY64[m2] - src.emitY64[m1];
+                const vSecX = dxChord / dR, vSecY = dyChord / dR;
+                const v0x = -b1x, v0y = -b1y;
+                const v1x = 3.0 * vSecX + b1x + b2x, v1y = 3.0 * vSecY + b1y + b2y;
+                const v2x = -b2x, v2y = -b2y;
+
+                const h10 = s3 - 2.0 * s2 + s;
+                const h01 = -2.0 * s3 + 3.0 * s2;
+                const h11 = s3 - s2;
+                const dxSub = h01 * dxChord + h10 * (v0x * dR) + h11 * (v2x * dR);
+                const dySub = h01 * dyChord + h10 * (v0y * dR) + h11 * (v2y * dR);
+
+                const oms = 1.0 - s;
+                const dzdRx = oms * oms * v0x + 2.0 * s * oms * v1x + s2 * v2x;
+                const dzdRy = oms * oms * v0y + 2.0 * s * oms * v1y + s2 * v2y;
+                const spMag = Math.hypot(dzdRx, dzdRy);
+                const bHatX = spMag > 1e-12 ? -dzdRx / spMag : 1.0;
+                const bHatY = spMag > 1e-12 ? -dzdRy / spMag : 0.0;
+
+                const uMag1 = Math.hypot(src.emitUx64[m1], src.emitUy64[m1]);
+                const uMag2 = Math.hypot(src.emitUx64[m2], src.emitUy64[m2]);
+                const uTarget = uMag1 + s * (uMag2 - uMag1);
+                const uSq = uTarget * uTarget;
+                const bMag = velMode === 2 ? uTarget / Math.sqrt(1.0 + uSq) : uTarget;
+                const oneMinusBeta2 = velMode === 2 ? 1.0 / (1.0 + uSq) : (1.0 - bMag) * (1.0 + bMag);
+
+                const w0 = -0.5 * s3 + s2 - 0.5 * s;
+                const w1 =  1.5 * s3 - 2.5 * s2 + 1.0;
+                const w2 = -1.5 * s3 + 2.0 * s2 + 0.5 * s;
+                const w3 =  0.5 * s3 - 0.5 * s2;
+                const bdx = src.emitBdx64[m0] * w0 + src.emitBdx64[m1] * w1 + src.emitBdx64[m2] * w2 + src.emitBdx64[m3] * w3;
+                const bdy = src.emitBdy64[m0] * w0 + src.emitBdy64[m1] * w1 + src.emitBdy64[m2] * w2 + src.emitBdy64[m3] * w3;
+
+                return { x1: src.emitX64[m1], y1: src.emitY64[m1], dxSub, dySub, r1, dRSub, dRdm: dR, dzdRx, dzdRy, bHatX, bHatY, bMag, oneMinusBeta2, bdx, bdy };
+            }
+
+            for (let iter = 0; iter < 24; iter++) {
+                const mMid = 0.5 * (mLow + mHigh);
+                const h = sample64(mMid);
+                const dist = Math.hypot((px - h.x1) - h.dxSub, (py - h.y1) - h.dySub);
+                if (h.r1 + h.dRSub < dist) mLow = mMid; else mHigh = mMid;
+            }
+            let mRet = 0.5 * (mLow + mHigh);
+            for (let nIter = 0; nIter < 6; nIter++) {
+                const h = sample64(mRet);
+                const dx = (px - h.x1) - h.dxSub, dy = (py - h.y1) - h.dySub;
+                const dist = Math.hypot(dx, dy);
+                const nx = dx / dist, ny = dy / dist;
+                const fVal = (h.r1 - dist) + h.dRSub;
+                const dfdm = h.dRdm * Math.max(1e-11, 1.0 + nx * h.dzdRx + ny * h.dzdRy);
+                mRet = Math.max(mLow, Math.min(mHigh, mRet - fVal / dfdm));
+            }
+            const ret = sample64(mRet);
+            const dx = (px - ret.x1) - ret.dxSub, dy = (py - ret.y1) - ret.dySub;
+            const r2 = dx * dx + dy * dy, r = Math.sqrt(r2);
+            const rSoft2 = r2 + state.softEps * state.softEps, rSoft = Math.sqrt(rSoft2);
+            const nx = dx / r, ny = dy / r;
+            const oneMinusBeta = ret.oneMinusBeta2 / (1.0 + ret.bMag);
+            const diffX = nx - ret.bHatX, diffY = ny - ret.bHatY;
+            const kappa = oneMinusBeta + 0.5 * ret.bMag * (diffX * diffX + diffY * diffY);
+            const kappa3 = kappa * kappa * kappa;
+            const ux = oneMinusBeta * nx + ret.bMag * diffX;
+            const uy = oneMinusBeta * ny + ret.bMag * diffY;
+            const velPref = ret.oneMinusBeta2 / (kappa3 * rSoft2);
+            const crossZ = ux * ret.bdy - uy * ret.bdx;
+            const radPref = 1.0 / (kappa3 * rSoft);
+            const ex = velPref * ux + radPref * (ny * crossZ);
+            const ey = velPref * uy + radPref * (-nx * crossZ);
+            return { ex, ey, mag: Math.hypot(ex, ey) };
+        }
+
+        function evalCancellationFreeKappaAndUFloat32(nx, ny, hist) {
+            const oneMinusBeta = f32(hist.oneMinusBeta2 / f32(1.0 + hist.bMag));
+            const diffX = f32(nx - hist.bHatX);
+            const diffY = f32(ny - hist.bHatY);
+            const diffSq = f32(f32(diffX * diffX) + f32(diffY * diffY));
+            const kappa = f32(Math.max(f32(1e-7), f32(oneMinusBeta + f32(0.5 * f32(hist.bMag * diffSq)))));
+            const ux = f32(f32(oneMinusBeta * nx) + f32(hist.bMag * diffX));
+            const uy = f32(f32(oneMinusBeta * ny) + f32(hist.bMag * diffY));
+            return { kappa, ux, uy };
+        }
+
+        // Strict IEEE-754 Float32 Shader-Equivalent Evaluator (Uses f32Len to match GLSL length() bit-for-bit!)
+        function evaluateShaderEquivalentFloat32(pxIn, pyIn, mTOverride, kBinOverride, velModeOverride) {
+            const px = f32(pxIn), py = f32(pyIn);
+            const M = mTOverride || state.mT;
+            const K_BIN = kBinOverride || state.kBin;
+            const vMode = velModeOverride !== undefined ? velModeOverride : state.velMode;
+            const softEps = f32(state.softEps);
+            const dTheta = f32(Math.PI / M);
+
+            let totEx = f32(0.0), totEy = f32(0.0);
+            let totVelMag = f32(0.0), totRadMag = f32(0.0);
+            let primaryR = f32(0.0), primaryTheta = f32(0.0);
+            let primaryPosX = f32(0.0), primaryPosY = f32(0.0);
+
+            const N = state.numParticles;
+            for (let s = 0; s < N; s++) {
+                const src = state.sources[s];
+                let mLow = f32(0.0);
+                let mHigh = f32(M - 1.001);
+
+                for (let iter = 0; iter < K_BIN; iter++) {
+                    const mMid = f32(0.5 * f32(mLow + mHigh));
+                    const hist = sampleSourceHistoryFloat32(src, mMid, M, vMode);
+                    const dx = f32(f32(px - hist.x1) - hist.dxSub);
+                    const dy = f32(f32(py - hist.y1) - hist.dySub);
+                    const dist = f32Len(dx, dy);
+                    const rShell = f32(hist.r1 + hist.dRSub);
+                    if (rShell < dist) mLow = mMid; else mHigh = mMid;
+                }
+
+                let mRet = f32(0.5 * f32(mLow + mHigh));
+                for (let nIter = 0; nIter < 2; nIter++) {
+                    const hist = sampleSourceHistoryFloat32(src, mRet, M, vMode);
+                    const dx = f32(f32(px - hist.x1) - hist.dxSub);
+                    const dy = f32(f32(py - hist.y1) - hist.dySub);
+                    const dist = f32Len(dx, dy);
+                    const nx = dist > 1e-6 ? f32(dx / dist) : f32(1.0);
+                    const ny = dist > 1e-6 ? f32(dy / dist) : f32(0.0);
+                    const fVal = f32(f32(hist.r1 - dist) + hist.dRSub);
+                    const nDotDzdR = f32(f32(nx * hist.dzdRx) + f32(ny * hist.dzdRy));
+                    const kappaSpline = f32(Math.max(f32(5e-5), f32(1.0 + nDotDzdR)));
+                    const dfdm = f32(Math.max(f32(1e-7), f32(hist.dRdm * kappaSpline)));
+                    const cand = f32(mRet - f32(fVal / dfdm));
+                    mRet = f32(Math.max(mLow, Math.min(mHigh, cand)));
+                }
+
+                const ret = sampleSourceHistoryFloat32(src, mRet, M, vMode);
+                const dx = f32(f32(px - ret.x1) - ret.dxSub);
+                const dy = f32(f32(py - ret.y1) - ret.dySub);
+                const r2 = f32(f32(dx * dx) + f32(dy * dy));
+                const r = f32(Math.sqrt(r2));
+                const rSoft2 = f32(r2 + f32(softEps * softEps));
+                const rSoft = f32(Math.sqrt(rSoft2));
+                const nx = r > 1e-6 ? f32(dx / r) : f32(1.0);
+                const ny = r > 1e-6 ? f32(dy / r) : f32(0.0);
+
+                const ku = evalCancellationFreeKappaAndUFloat32(nx, ny, ret);
+                const kappa = ku.kappa;
+                const kappa3 = f32(kappa * f32(kappa * kappa));
+
+                const chg = f32(src.charge);
+                const velPref = f32(f32(chg * ret.oneMinusBeta2) / f32(kappa3 * rSoft2));
+                const eVelX = f32(velPref * ku.ux);
+                const eVelY = f32(velPref * ku.uy);
+
+                const crossZ = f32(f32(ku.ux * ret.bdy) - f32(ku.uy * ret.bdx));
+                const radPref = f32(chg / f32(kappa3 * rSoft));
+                const eRadX = f32(radPref * f32(ny * crossZ));
+                const eRadY = f32(radPref * f32(-nx * crossZ));
+
+                totEx = f32(totEx + f32(eVelX + eRadX));
+                totEy = f32(totEy + f32(eVelY + eRadY));
+                totVelMag = f32(totVelMag + f32Len(eVelX, eVelY));
+                totRadMag = f32(totRadMag + f32Len(eRadX, eRadY));
+
+                if (s === 0) {
+                    primaryR = r;
+                    primaryTheta = f32(f32(mRet + 0.5) * dTheta);
+                    primaryPosX = ret.x;
+                    primaryPosY = ret.y;
+                }
+            }
+
+            return {
+                ex: totEx, ey: totEy,
+                mag: f32Len(totEx, totEy),
+                velMag: totVelMag, radMag: totRadMag,
+                rRet: primaryR, thetaRet: primaryTheta,
+                emitX: primaryPosX, emitY: primaryPosY
+            };
+        }
+
+        function getNyquistHorizonRadius() {
+            const dTheta = Math.PI / state.mT;
+            const orbitLambda = (2 * Math.PI * C_LIGHT) / Math.max(0.5, state.omega);
+            const pointsPerOrbitWave = 10.0;
+            const maxDeltaR = orbitLambda / pointsPerOrbitWave;
+            const inside = (2.0 * state.scaleL * maxDeltaR) / dTheta - state.scaleL * state.scaleL;
+            return inside > 0 ? Math.sqrt(inside) : 0.35;
+        }
+
+        const glCanvas = document.getElementById('glCanvas');
+        const bulkCanvas = document.getElementById('bulkCanvas');
+        const bulkCtx = bulkCanvas.getContext('2d');
+        const plotCanvas = document.getElementById('plotCanvas');
+        const plotCtx = plotCanvas.getContext('2d');
+
+        let gl = null;
+        let glProg = null;
+        let glUniforms = {};
+        let texPosVel = null;
+        let texAccChg = null;
+        let texQueryCoords = null;
+        let verifyFBO = null;
+        let verifyTex = null;
+        const VERIFY_WIDTH = 256;
+        const texPosVelData = new Float32Array(MAX_M_T * MAX_PARTICLES * 4);
+        const texAccChgData = new Float32Array(MAX_M_T * MAX_PARTICLES * 4);
+        const queryCoordsData = new Float32Array(VERIFY_WIDTH * 4);
+        const readbackBuffer = new Float32Array(VERIFY_WIDTH * 4);
+
+        function initWebGL2() {
+            gl = glCanvas.getContext('webgl2', { antialias: false, depth: false, stencil: false });
+            if (!gl) return false;
+            gl.getExtension('EXT_color_buffer_float');
+            gl.getExtension('OES_texture_float_linear');
+
+            const vsSource = `#version 300 es
+            in vec2 a_pos;
+            out vec2 v_uv;
+            void main() {
+                v_uv = a_pos * 0.5 + 0.5;
+                gl_Position = vec4(a_pos, 0.0, 1.0);
+            }`;
+
+            const fsSource = `#version 300 es
+            precision highp float;
+            in vec2 v_uv;
+            out vec4 outColor;
+
+            uniform sampler2D u_texPosVel;
+            uniform sampler2D u_texAccChg;
+            uniform sampler2D u_texQueryCoords;
+            uniform int u_activeCount;
+            uniform int u_mT;
+            uniform int u_kBin;
+            uniform int u_velMode;
+            uniform int u_readbackMode;
+            uniform float u_aspect;
+            uniform float u_scaleL;
+            uniform float u_softEps;
+            uniform int u_channel;
+            uniform int u_motionMode;
+            uniform int u_stressMode;
+            uniform int u_showWavePool;
+            uniform int u_showImpostors;
+            uniform float u_beta;
+            uniform float u_omega;
+            uniform float u_time;
+
+            const float PI = 3.14159265359;
+            const float C_LIGHT = 2.35;
+
+            vec2 unpackKnotBeta(vec2 rawVel) {
+                if (u_velMode == 2) {
+                    float uSq = dot(rawVel, rawVel);
+                    return rawVel / sqrt(1.0 + uSq);
+                }
+                return rawVel;
+            }
+
+            float computeBernsteinAlpha(vec2 vSec, vec2 v1Raw, float maxSub) {
+                float v1Sq = dot(v1Raw, v1Raw);
+                float maxSq = maxSub * maxSub;
+                if (v1Sq <= maxSq) return 1.0;
+                vec2 d = v1Raw - vSec;
+                float a = dot(d, d);
+                if (a <= 1e-12) return 0.0;
+                float bHalf = dot(vSec, d);
+                float c = dot(vSec, vSec) - maxSq;
+                if (c >= 0.0) return 0.0;
+                float disc = max(0.0, bHalf * bHalf - a * c);
+                return clamp((-bHalf + sqrt(disc)) / a, 0.0, 1.0);
+            }
+
+            void sampleCatmullRom(int s, float mFloat, out vec2 pos1, out vec2 dPosSub, out float r1, out float dRSub, out float dRdm, out vec2 dzdR, out vec2 bHat, out float bMag, out float oneMinusBeta2, out vec2 acc, out float chg) {
+                float mClamped = clamp(mFloat, 0.0, float(u_mT) - 1.0001);
+                float mFloor = floor(mClamped);
+                int m1 = int(mFloor);
+                int m0 = max(0, m1 - 1);
+                int m2 = min(u_mT - 1, m1 + 1);
+                int m3 = min(u_mT - 1, m1 + 2);
+                float t = mClamped - mFloor;
+                float t2 = t * t;
+                float t3 = t2 * t;
+
+                vec4 pv0 = texelFetch(u_texPosVel, ivec2(m0, s), 0);
+                vec4 pv1 = texelFetch(u_texPosVel, ivec2(m1, s), 0);
+                vec4 pv2 = texelFetch(u_texPosVel, ivec2(m2, s), 0);
+                vec4 pv3 = texelFetch(u_texPosVel, ivec2(m3, s), 0);
+
+                vec4 ac0 = texelFetch(u_texAccChg, ivec2(m0, s), 0);
+                vec4 ac1 = texelFetch(u_texAccChg, ivec2(m1, s), 0);
+                vec4 ac2 = texelFetch(u_texAccChg, ivec2(m2, s), 0);
+                vec4 ac3 = texelFetch(u_texAccChg, ivec2(m3, s), 0);
+
+                r1 = ac1.w;
+                float r2 = ac2.w;
+                float dR = m2 > m1 ? max(1e-6, r2 - r1) : 1e-6;
+                float sRad = m2 > m1 ? t : 0.0;
+                dRSub = sRad * dR;
+                dRdm = dR;
+
+                float maxSubluminal = 0.99995;
+                vec2 dChord = pv2.xy - pv1.xy;
+                vec2 vSec = dChord / dR;
+                float vSecMag = length(vSec);
+                if (vSecMag > maxSubluminal) vSec *= (maxSubluminal / vSecMag);
+
+                vec2 b1 = unpackKnotBeta(pv1.zw);
+                vec2 b2 = unpackKnotBeta(pv2.zw);
+                float b1Mag = length(b1);
+                if (b1Mag > maxSubluminal) b1 *= (maxSubluminal / b1Mag);
+                float b2Mag = length(b2);
+                if (b2Mag > maxSubluminal) b2 *= (maxSubluminal / b2Mag);
+
+                vec2 v1Raw = 3.0 * vSec + b1 + b2;
+                float alpha = computeBernsteinAlpha(vSec, v1Raw, maxSubluminal);
+                float oma = 1.0 - alpha;
+
+                vec2 v0 = oma * vSec - alpha * b1;
+                vec2 v1 = vSec + alpha * (v1Raw - vSec);
+                vec2 v2 = oma * vSec - alpha * b2;
+                vec2 tang1 = v0 * dR;
+                vec2 tang2 = v2 * dR;
+
+                float s2 = sRad * sRad;
+                float s3 = s2 * sRad;
+                float h10 =        s3 - 2.0 * s2 + sRad;
+                float h01 = -2.0 * s3 + 3.0 * s2;
+                float h11 =        s3 -       s2;
+
+                pos1 = pv1.xy;
+                dPosSub = h01 * dChord + h10 * tang1 + h11 * tang2;
+
+                float oms = 1.0 - sRad;
+                dzdR = (oms * oms) * v0 + (2.0 * sRad * oms) * v1 + s2 * v2;
+                vec2 splineVel = -dzdR;
+                float splineVelMag = length(splineVel);
+
+                float w0 = -0.5 * t3 + t2 - 0.5 * t;
+                float w1 =  1.5 * t3 - 2.5 * t2 + 1.0;
+                float w2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
+                float w3 =  0.5 * t3 - 0.5 * t2;
+
+                vec4 ac = ac0 * w0 + ac1 * w1 + ac2 * w2 + ac3 * w3;
+                acc = ac.xy;
+                chg = ac.z;
+
+                if (u_velMode == 2) {
+                    float u1 = length(pv1.zw);
+                    float u2 = length(pv2.zw);
+                    float uTarget = mix(u1, u2, t);
+                    bHat = splineVelMag > 1e-7 ? (splineVel / splineVelMag) : vec2(1.0, 0.0);
+                    float uSq = uTarget * uTarget;
+                    float gamma = sqrt(1.0 + uSq);
+                    bMag = uTarget / gamma;
+                    oneMinusBeta2 = 1.0 / (1.0 + uSq);
+                } else if (u_velMode == 1) {
+                    float b1m = length(pv1.zw);
+                    float b2m = length(pv2.zw);
+                    float bTarget = mix(b1m, b2m, t);
+                    bHat = splineVelMag > 1e-7 ? (splineVel / splineVelMag) : vec2(1.0, 0.0);
+                    bMag = min(0.9999995, bTarget);
+                    oneMinusBeta2 = (1.0 - bMag) * (1.0 + bMag);
+                } else {
+                    vec2 rawVel = pv0.zw * w0 + pv1.zw * w1 + pv2.zw * w2 + pv3.zw * w3;
+                    bMag = min(0.9999995, length(rawVel));
+                    bHat = bMag > 1e-7 ? (rawVel / bMag) : vec2(1.0, 0.0);
+                    oneMinusBeta2 = (1.0 - bMag) * (1.0 + bMag);
+                }
+            }
+
+            void evalCancellationFreeKappaAndU(vec2 n, vec2 bHat, float bMag, float oneMinusBeta2, out float kappa, out vec2 uVec) {
+                float oneMinusBeta = oneMinusBeta2 / (1.0 + bMag);
+                vec2 diff = n - bHat;
+                float diffSq = dot(diff, diff);
+                kappa = max(1e-7, oneMinusBeta + 0.5 * bMag * diffSq);
+                uVec = oneMinusBeta * n + bMag * diff;
+            }
+
+            void evalLWKernel(vec2 d, vec2 bHat, float bMag, float oneMinusBeta2, vec2 betaDot, float charge, out vec2 eVel, out vec2 eRad) {
+                float r2 = dot(d, d);
+                float r = sqrt(r2);
+                float rSoft2 = r2 + u_softEps * u_softEps;
+                float rSoft = sqrt(rSoft2);
+                vec2 n = r > 1e-6 ? d / r : vec2(1.0, 0.0);
+
+                float kappa;
+                vec2 u;
+                evalCancellationFreeKappaAndU(n, bHat, bMag, oneMinusBeta2, kappa, u);
+                float kappa3 = kappa * kappa * kappa;
+
+                eVel = (charge * oneMinusBeta2 / (kappa3 * rSoft2)) * u;
+                float crossZ = u.x * betaDot.y - u.y * betaDot.x;
+                eRad = (charge / (kappa3 * rSoft)) * vec2(n.y * crossZ, -n.x * crossZ);
+            }
+
+            vec3 evalConformalSphereImpostors(vec2 wPos) {
+                vec3 impCol = vec3(0.0);
+                float shellSpace = 0.52;
+                float phaseOff = fract((u_time * C_LIGHT) / shellSpace);
+                vec3 lightDir = normalize(vec3(-0.35, 0.45, 0.82));
+
+                for (int k = 0; k < 5; k++) {
+                    float rShell = (float(k) + phaseOff) * shellSpace;
+                    if (rShell < 0.06 || rShell > 2.65) continue;
+                    float th = 2.0 * atan(rShell / u_scaleL);
+                    float mFl = (th / PI) * float(u_mT) - 0.5;
+                    vec2 pos1, dPosSub, dzdR, bHat, acc;
+                    float r1, dRSub, dRdm, bMag, omb2, chg;
+                    sampleCatmullRom(0, mFl, pos1, dPosSub, r1, dRSub, dRdm, dzdR, bHat, bMag, omb2, acc, chg);
+
+                    vec2 d = (wPos - pos1) - dPosSub;
+                    float d2 = dot(d, d);
+                    float r2 = rShell * rShell;
+                    if (d2 < r2) {
+                        float z = sqrt(r2 - d2);
+                        vec3 normal = vec3(d.x, d.y, z) / rShell;
+                        float nv = clamp(normal.z, 0.0, 1.0);
+                        float fresnel = pow(1.0 - nv, 4.0);
+                        float rim = exp(-abs(sqrt(d2) - rShell) * 48.0);
+                        vec2 n2 = d / max(1e-5, sqrt(d2));
+                        float kappa;
+                        vec2 uTmp;
+                        evalCancellationFreeKappaAndU(n2, bHat, bMag, omb2, kappa, uTmp);
+                        float doppler = 1.0 / max(0.18, kappa);
+                        float spec = pow(max(0.0, dot(reflect(-lightDir, normal), vec3(0.0, 0.0, 1.0))), 28.0);
+                        float fade = clamp(1.0 - rShell / 2.65, 0.0, 1.0);
+                        vec3 shellTint = mix(vec3(0.15, 0.68, 0.98), vec3(0.98, 0.75, 0.25), clamp((doppler - 1.0) * 0.35, 0.0, 1.0));
+                        impCol += fade * (shellTint * (0.28 * fresnel + 0.65 * rim) + vec3(0.85, 0.95, 1.0) * spec * 0.45);
+                    }
+                }
+                return impCol;
+            }
+
+            vec3 hsv2rgb(vec3 c) {
+                vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+                vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+                return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+            }
+
+            void main() {
+                vec2 wPos;
+                if (u_readbackMode == 1) {
+                    int qIdx = int(gl_FragCoord.x);
+                    wPos = texelFetch(u_texQueryCoords, ivec2(qIdx, 0), 0).xy;
+                } else {
+                    vec2 pNorm = vec2((v_uv.x - 0.5) * 2.0 * u_aspect, (v_uv.y - 0.5) * 2.0);
+                    wPos = pNorm * 1.45;
+                }
+
+                vec2 totCompactE = vec2(0.0);
+                vec2 totRadE = vec2(0.0);
+                vec2 primaryEmitPos = vec2(0.0);
+
+                // In visual multi-source mode (N_p > 4 and u_readbackMode == 0), use 7 binary + 1 Newton step for 60 FPS performance;
+                // In readback mode or single-source benchmark mode, use exact u_kBin + 2 Newton steps!
+                int effKBin = (u_readbackMode == 0 && u_activeCount > 4) ? min(u_kBin, 7) : u_kBin;
+                int effNewton = (u_readbackMode == 0 && u_activeCount > 4) ? 1 : 2;
+
+                for (int s = 0; s < 256; s++) {
+                    if (s >= u_activeCount) break;
+
+                    float mLow = 0.0;
+                    float mHigh = float(u_mT) - 1.001;
+                    for (int iter = 0; iter < 16; iter++) {
+                        if (iter >= effKBin) break;
+                        float mMid = 0.5 * (mLow + mHigh);
+                        vec2 pos1, dPosSub, dzdR, bHat, acc;
+                        float r1, dRSub, dRdm, bMag, omb2, chg;
+                        sampleCatmullRom(s, mMid, pos1, dPosSub, r1, dRSub, dRdm, dzdR, bHat, bMag, omb2, acc, chg);
+                        vec2 dVec = (wPos - pos1) - dPosSub;
+                        if ((r1 + dRSub) < length(dVec)) mLow = mMid; else mHigh = mMid;
+                    }
+
+                    float mRet = 0.5 * (mLow + mHigh);
+                    for (int nIter = 0; nIter < 2; nIter++) {
+                        if (nIter >= effNewton) break;
+                        vec2 pos1, dPosSub, dzdR, bHat, acc;
+                        float r1, dRSub, dRdm, bMag, omb2, chg;
+                        sampleCatmullRom(s, mRet, pos1, dPosSub, r1, dRSub, dRdm, dzdR, bHat, bMag, omb2, acc, chg);
+                        vec2 dVec = (wPos - pos1) - dPosSub;
+                        float dist = length(dVec);
+                        vec2 n = dist > 1e-6 ? (dVec / dist) : vec2(1.0, 0.0);
+                        float fVal = (r1 - dist) + dRSub;
+                        float kappaSpline = max(5e-5, 1.0 + dot(n, dzdR));
+                        float dfdm = max(1e-7, dRdm * kappaSpline);
+                        float cand = mRet - (fVal / dfdm);
+                        mRet = clamp(cand, mLow, mHigh);
+                    }
+
+                    vec2 pos1Ret, dPosSubRet, dzdRRet, bHatRet, accRet;
+                    float r1Ret, dRSubRet, dRdmRet, bMagRet, omb2Ret, chgRet;
+                    sampleCatmullRom(s, mRet, pos1Ret, dPosSubRet, r1Ret, dRSubRet, dRdmRet, dzdRRet, bHatRet, bMagRet, omb2Ret, accRet, chgRet);
+
+                    vec2 dRet = (wPos - pos1Ret) - dPosSubRet;
+                    vec2 eVel, eRad;
+                    evalLWKernel(dRet, bHatRet, bMagRet, omb2Ret, accRet, chgRet, eVel, eRad);
+                    totCompactE += (eVel + eRad);
+                    totRadE += eRad;
+                    if (s == 0) primaryEmitPos = pos1Ret + dPosSubRet;
+                }
+
+                if (u_readbackMode == 1) {
+                    outColor = vec4(totCompactE.x, totCompactE.y, primaryEmitPos.x, primaryEmitPos.y);
+                    return;
+                }
+
+                if (u_showWavePool == 0) {
+                    vec3 darkBg = vec3(0.027, 0.039, 0.071);
+                    if (u_showImpostors == 1) darkBg += evalConformalSphereImpostors(wPos);
+                    outColor = vec4(clamp(darkBg, 0.0, 1.0), 1.0);
+                    return;
+                }
+
+                vec2 displayVec = u_channel == 3 ? totRadE : totCompactE;
+                // Balanced filmic auto-gain across N_p: zero white clipping, smooth water-caustic dynamic range
+                float multiScaleGain = 1.0 / pow(float(max(1, u_activeCount)), 0.42);
+                float mag = length(displayVec) * multiScaleGain;
+                // Smooth filmic shoulder (never hard-clips to flat white even under strong acceleration)
+                float logMag = log(1.0 + 1.85 * mag);
+                float compressed = logMag / (1.35 + logMag);
+                float val = clamp(0.14 + 0.82 * pow(compressed, 0.75), 0.0, 0.96);
+                float ang = atan(displayVec.y, displayVec.x);
+                float hue = fract((ang + PI) / (2.0 * PI));
+                // Desaturate only slightly at the very highest intensity peak so colors stay rich and legible
+                float sat = mix(0.78, 0.42, pow(compressed, 3.5));
+                vec3 fieldRgb = hsv2rgb(vec3(hue, sat, val));
+
+                vec3 poolBase = vec3(0.03, 0.11, 0.22) * (0.4 + 0.6 * compressed);
+                float caustic = pow(clamp(compressed, 0.0, 1.0), 3.2) * 0.24;
+                vec3 col = clamp(mix(poolBase, fieldRgb, clamp(compressed * 1.15 + 0.18, 0.0, 1.0)) + vec3(caustic * 0.6, caustic * 0.85, caustic), 0.0, 1.0);
+
+                if (u_showImpostors == 1) {
+                    col = clamp(col + evalConformalSphereImpostors(wPos) * 0.60, 0.0, 1.0);
+                }
+
+                outColor = vec4(col, 1.0);
+            }`;
+
+            function compileShader(type, src) {
+                const sh = gl.createShader(type);
+                gl.shaderSource(sh, src);
+                gl.compileShader(sh);
+                return sh;
+            }
+
+            glProg = gl.createProgram();
+            gl.attachShader(glProg, compileShader(gl.VERTEX_SHADER, vsSource));
+            gl.attachShader(glProg, compileShader(gl.FRAGMENT_SHADER, fsSource));
+            gl.linkProgram(glProg);
+            gl.useProgram(glProg);
+
+            const quadBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+            const posLoc = gl.getAttribLocation(glProg, 'a_pos');
+            gl.enableVertexAttribArray(posLoc);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+            function createDataTex(unit) {
+                const tex = gl.createTexture();
+                gl.activeTexture(gl.TEXTURE0 + unit);
+                gl.bindTexture(gl.TEXTURE_2D, tex);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                return tex;
+            }
+
+            texPosVel = createDataTex(0);
+            texAccChg = createDataTex(1);
+            texQueryCoords = createDataTex(2);
+
+            verifyTex = createDataTex(3);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, VERIFY_WIDTH, 1, 0, gl.RGBA, gl.FLOAT, null);
+            verifyFBO = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, verifyFBO);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, verifyTex, 0);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+            glUniforms = {
+                texPosVel: gl.getUniformLocation(glProg, 'u_texPosVel'),
+                texAccChg: gl.getUniformLocation(glProg, 'u_texAccChg'),
+                texQueryCoords: gl.getUniformLocation(glProg, 'u_texQueryCoords'),
+                activeCount: gl.getUniformLocation(glProg, 'u_activeCount'),
+                mT: gl.getUniformLocation(glProg, 'u_mT'),
+                kBin: gl.getUniformLocation(glProg, 'u_kBin'),
+                velMode: gl.getUniformLocation(glProg, 'u_velMode'),
+                readbackMode: gl.getUniformLocation(glProg, 'u_readbackMode'),
+                aspect: gl.getUniformLocation(glProg, 'u_aspect'),
+                scaleL: gl.getUniformLocation(glProg, 'u_scaleL'),
+                softEps: gl.getUniformLocation(glProg, 'u_softEps'),
+                channel: gl.getUniformLocation(glProg, 'u_channel'),
+                motionMode: gl.getUniformLocation(glProg, 'u_motionMode'),
+                stressMode: gl.getUniformLocation(glProg, 'u_stressMode'),
+                showWavePool: gl.getUniformLocation(glProg, 'u_showWavePool'),
+                showImpostors: gl.getUniformLocation(glProg, 'u_showImpostors'),
+                beta: gl.getUniformLocation(glProg, 'u_beta'),
+                omega: gl.getUniformLocation(glProg, 'u_omega'),
+                time: gl.getUniformLocation(glProg, 'u_time')
+            };
+            gl.uniform1i(glUniforms.texPosVel, 0);
+            gl.uniform1i(glUniforms.texAccChg, 1);
+            gl.uniform1i(glUniforms.texQueryCoords, 2);
+            return true;
+        }
+
+        const hasWebGL2 = initWebGL2();
+
+        function uploadHistoryTexturesToGPU(M, N) {
+            const activeRows = Math.max(1, N);
+            const totalFloats = M * activeRows * 4;
+            for (let s = 0; s < activeRows; s++) {
+                const src = state.sources[s];
+                const rowOffset = s * M * 4;
+                for (let m = 0; m < M; m++) {
+                    const idx = rowOffset + m * 4;
+                    texPosVelData[idx]     = src.emitX[m];
+                    texPosVelData[idx + 1] = src.emitY[m];
+                    texPosVelData[idx + 2] = src.emitUx[m];
+                    texPosVelData[idx + 3] = src.emitUy[m];
+
+                    texAccChgData[idx]     = src.emitBdx[m];
+                    texAccChgData[idx + 1] = src.emitBdy[m];
+                    texAccChgData[idx + 2] = src.charge;
+                    texAccChgData[idx + 3] = src.emitR[m];
+                }
+            }
+            const subPosVel = texPosVelData.subarray(0, totalFloats);
+            const subAccChg = texAccChgData.subarray(0, totalFloats);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texPosVel);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, activeRows, 0, gl.RGBA, gl.FLOAT, subPosVel);
+
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, texAccChg);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, activeRows, 0, gl.RGBA, gl.FLOAT, subAccChg);
+        }
+
+        function evaluateViaGPUFramebufferReadback(pointsArray, M, kBin, velMode, skipUpload) {
+            const count = Math.min(VERIFY_WIDTH, pointsArray.length);
+            for (let i = 0; i < count; i++) {
+                queryCoordsData[i * 4]     = f32(pointsArray[i].x);
+                queryCoordsData[i * 4 + 1] = f32(pointsArray[i].y);
+                queryCoordsData[i * 4 + 2] = 0.0;
+                queryCoordsData[i * 4 + 3] = 0.0;
+            }
+
+            if (hasWebGL2 && verifyFBO) {
+                gl.useProgram(glProg);
+                if (!skipUpload) {
+                    uploadHistoryTexturesToGPU(M, state.numParticles);
+                }
+
+                gl.activeTexture(gl.TEXTURE2);
+                gl.bindTexture(gl.TEXTURE_2D, texQueryCoords);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, VERIFY_WIDTH, 1, 0, gl.RGBA, gl.FLOAT, queryCoordsData);
+
+                gl.bindFramebuffer(gl.FRAMEBUFFER, verifyFBO);
+                gl.viewport(0, 0, VERIFY_WIDTH, 1);
+
+                gl.uniform1i(glUniforms.activeCount, state.numParticles);
+                gl.uniform1i(glUniforms.mT, M);
+                gl.uniform1i(glUniforms.kBin, kBin);
+                gl.uniform1i(glUniforms.velMode, velMode);
+                gl.uniform1i(glUniforms.readbackMode, 1);
+                gl.uniform1f(glUniforms.scaleL, state.scaleL);
+                gl.uniform1f(glUniforms.softEps, state.softEps);
+
+                gl.drawArrays(gl.TRIANGLES, 0, 6);
+                gl.readPixels(0, 0, VERIFY_WIDTH, 1, gl.RGBA, gl.FLOAT, readbackBuffer);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+                const out = [];
+                for (let i = 0; i < count; i++) {
+                    const ex = readbackBuffer[i * 4];
+                    const ey = readbackBuffer[i * 4 + 1];
+                    const emitX = readbackBuffer[i * 4 + 2];
+                    const emitY = readbackBuffer[i * 4 + 3];
+                    out.push({ ex, ey, mag: f32Len(ex, ey), emitX, emitY });
+                }
+                return out;
+            }
+
+            return pointsArray.map(pt => evaluateShaderEquivalentFloat32(pt.x, pt.y, M, kBin, velMode));
+        }
+
+        function stepSimulation(dt, betaOverride, motionOverride, mTOverride, velModeOverride, uniformMaxR, gridMode, skipShellPopulate) {
+            state.time += dt;
+            const N = state.numParticles;
+            const M = mTOverride || state.mT;
+            const vMode = velModeOverride !== undefined ? velModeOverride : state.velMode;
+            const dTheta = Math.PI / M;
+
+            for (let i = 0; i < N; i++) {
+                const s = state.sources[i];
+
+                // Allow smooth, C^2 spring-damper manual dragging of Source #0 AND subluminal return to orbit upon release!
+                const kin = getExactTrajectoryKinematics(i, N, state.time, betaOverride, motionOverride);
+                s.charge = kin.charge;
+
+                if (i === 0 && betaOverride === undefined && (state.interactionTarget === 'source0' || s.returningToOrbit)) {
+                    const goalX = state.interactionTarget === 'source0' ? state.draggedSourceTarget.x : kin.x;
+                    const goalY = state.interactionTarget === 'source0' ? state.draggedSourceTarget.y : kin.y;
+                    const goalBx = state.interactionTarget === 'source0' ? 0.0 : kin.bx;
+                    const goalBy = state.interactionTarget === 'source0' ? 0.0 : kin.by;
+
+                    const dx = goalX - s.x;
+                    const dy = goalY - s.y;
+                    const distToGoal = Math.hypot(dx, dy);
+                    const dvGoal = Math.hypot(s.bx - goalBx, s.by - goalBy);
+
+                    if (state.interactionTarget !== 'source0' && distToGoal < 0.008 && dvGoal < 0.03) {
+                        s.returningToOrbit = false;
+                        s.x = kin.x; s.y = kin.y;
+                        s.bx = kin.bx; s.by = kin.by;
+                        s.bdx = kin.bdx; s.bdy = kin.bdy;
+                    } else {
+                        const springK = 8.5;
+                        let targetBx = goalBx + (dx * springK) / C_LIGHT;
+                        let targetBy = goalBy + (dy * springK) / C_LIGHT;
+                        const targetBMag = Math.hypot(targetBx, targetBy);
+                        const maxDragBeta = 0.90;
+                        if (targetBMag > maxDragBeta) {
+                            targetBx *= (maxDragBeta / targetBMag);
+                            targetBy *= (maxDragBeta / targetBMag);
+                        }
+                        const blend = 0.085;
+                        const newBx = (1.0 - blend) * s.bx + blend * targetBx;
+                        const newBy = (1.0 - blend) * s.by + blend * targetBy;
+                        let rawBdx = ((newBx - s.bx) / Math.max(1e-5, dt)) / C_LIGHT;
+                        let rawBdy = ((newBy - s.by) / Math.max(1e-5, dt)) / C_LIGHT;
+                        const accMag = Math.hypot(rawBdx, rawBdy);
+                        const maxDragAcc = 1.15;
+                        if (accMag > maxDragAcc) {
+                            rawBdx *= (maxDragAcc / accMag);
+                            rawBdy *= (maxDragAcc / accMag);
+                        }
+                        s.bdx = 0.88 * s.bdx + 0.12 * rawBdx;
+                        s.bdy = 0.88 * s.bdy + 0.12 * rawBdy;
+                        s.bx = newBx;
+                        s.by = newBy;
+                        s.x += s.bx * C_LIGHT * dt;
+                        s.y += s.by * C_LIGHT * dt;
+                    }
+                } else {
+                    s.x = kin.x; s.y = kin.y;
+                    s.bx = kin.bx; s.by = kin.by;
+                    s.bdx = kin.bdx; s.bdy = kin.bdy;
+                }
+
+                s.ringHead = (s.ringHead + 1) % RING_SIZE;
+                s.ringX[s.ringHead] = s.x;
+                s.ringY[s.ringHead] = s.y;
+                s.ringBx[s.ringHead] = s.bx;
+                s.ringBy[s.ringHead] = s.by;
+                s.ringBdx[s.ringHead] = s.bdx;
+                s.ringBdy[s.ringHead] = s.bdy;
+
+                if (skipShellPopulate) continue;
+
+                if (!state.useDiffusiveEulerian) {
+                    populateShellsFromRingBuffer(s, M, vMode, dt, uniformMaxR, gridMode);
+                } else {
+                    const cDt = C_LIGHT * dt;
+                    for (let m = 0; m < M; m++) {
+                        const th = (m + 0.5) * dTheta;
+                        const rNow = state.scaleL * Math.tan(0.5 * th);
+                        const rPrev = rNow - cDt;
+                        if (rPrev <= 0) {
+                            const packedV = packVelocityForStorage(s.bx, s.by, vMode);
+                            s.nextX[m] = f32(s.x); s.nextY[m] = f32(s.y);
+                            s.nextUx[m] = packedV.ux; s.nextUy[m] = packedV.uy;
+                            s.nextBdx[m] = f32(s.bdx); s.nextBdy[m] = f32(s.bdy);
+                        } else {
+                            const thetaPrev = 2.0 * Math.atan(rPrev / state.scaleL);
+                            const mPrev = (thetaPrev / Math.PI) * M - 0.5;
+                            const mClamped = Math.max(0, Math.min(M - 1.001, mPrev));
+                            const m0 = Math.floor(mClamped);
+                            const m1 = Math.min(M - 1, m0 + 1);
+                            const f = mClamped - m0, omf = 1.0 - f;
+                            s.nextX[m] = f32(s.emitX[m0] * omf + s.emitX[m1] * f);
+                            s.nextY[m] = f32(s.emitY[m0] * omf + s.emitY[m1] * f);
+                            s.nextUx[m] = f32(s.emitUx[m0] * omf + s.emitUx[m1] * f);
+                            s.nextUy[m] = f32(s.emitUy[m0] * omf + s.emitUy[m1] * f);
+                            s.nextBdx[m] = f32(s.emitBdx[m0] * omf + s.emitBdx[m1] * f);
+                            s.nextBdy[m] = f32(s.emitBdy[m0] * omf + s.emitBdy[m1] * f);
+                        }
+                    }
+                    s.emitX.set(s.nextX); s.emitY.set(s.nextY);
+                    s.emitUx.set(s.nextUx); s.emitUy.set(s.nextUy);
+                    s.emitBdx.set(s.nextBdx); s.emitBdy.set(s.nextBdy);
+                }
+            }
+        }
+
+        function renderBulkField() {
+            const cw = bulkCanvas.clientWidth;
+            const ch = bulkCanvas.clientHeight;
+            const aspect = cw / Math.max(1, ch);
+
+            if (hasWebGL2) {
+                if (glCanvas.width !== cw || glCanvas.height !== ch) {
+                    glCanvas.width = cw;
+                    glCanvas.height = ch;
+                }
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                gl.viewport(0, 0, cw, ch);
+                gl.useProgram(glProg);
+                uploadHistoryTexturesToGPU(state.mT, state.numParticles);
+
+                const chanMap = { total: 0, lw_split: 1, error_map: 2, rad_only: 3 };
+                const motMap = { synchrotron: 0, uniform: 1, oscillator: 2, swarm: 3 };
+
+                gl.uniform1i(glUniforms.activeCount, state.numParticles);
+                gl.uniform1i(glUniforms.mT, state.mT);
+                gl.uniform1i(glUniforms.kBin, state.kBin);
+                gl.uniform1i(glUniforms.velMode, state.velMode);
+                gl.uniform1i(glUniforms.readbackMode, 0);
+                gl.uniform1f(glUniforms.aspect, aspect);
+                gl.uniform1f(glUniforms.scaleL, state.scaleL);
+                gl.uniform1f(glUniforms.softEps, state.softEps);
+                gl.uniform1i(glUniforms.channel, chanMap[state.channel] || 0);
+                gl.uniform1i(glUniforms.motionMode, motMap[state.motionMode] || 0);
+                gl.uniform1i(glUniforms.stressMode, state.stressTestMode ? 1 : 0);
+                gl.uniform1i(glUniforms.showWavePool, state.showWavePool ? 1 : 0);
+                gl.uniform1i(glUniforms.showImpostors, state.showImpostors ? 1 : 0);
+                gl.uniform1f(glUniforms.beta, state.beta);
+                gl.uniform1f(glUniforms.omega, state.omega);
+                gl.uniform1f(glUniforms.time, state.time);
+
+                gl.drawArrays(gl.TRIANGLES, 0, 6);
+            }
+
+            if (bulkCanvas.width !== cw || bulkCanvas.height !== ch) {
+                bulkCanvas.width = cw;
+                bulkCanvas.height = ch;
+            }
+            bulkCtx.clearRect(0, 0, cw, ch);
+
+            const worldToScreen = (wx, wy) => ({
+                x: (wx / (1.45 * aspect) * 0.5 + 0.5) * cw,
+                y: (0.5 - wy / 1.45 * 0.5) * ch
+            });
+            const scalePx = (1.0 / 1.45) * 0.5 * ch;
+            const src0 = state.sources[0];
+
+            if (state.showDilatingFibers) {
+                const inkOnPool = state.showWavePool;
+                const shellSpacingR = 0.55;
+                const phaseOffset = ((state.time * C_LIGHT) / shellSpacingR) % 1.0;
+                const maxRayR = 2.8;
+                const nRadSteps = 120;
+
+                // Pre-sample & radially smooth the retarded history along the ray so fast turns never fold or kink the grid!
+                const rayHistX = new Float64Array(nRadSteps + 1);
+                const rayHistY = new Float64Array(nRadSteps + 1);
+                const rayHistBx = new Float64Array(nRadSteps + 1);
+                const rayHistBy = new Float64Array(nRadSteps + 1);
+                for (let step = 0; step <= nRadSteps; step++) {
+                    const r = (step / nRadSteps) * maxRayR;
+                    const stepsBack = r / (C_LIGHT * DT_STEP);
+                    const h0 = sampleFromRingBuffer(src0, Math.max(0, stepsBack - 2.2));
+                    const h1 = sampleFromRingBuffer(src0, stepsBack);
+                    const h2 = sampleFromRingBuffer(src0, stepsBack + 2.2);
+                    rayHistX[step] = 0.25 * h0.x + 0.50 * h1.x + 0.25 * h2.x;
+                    rayHistY[step] = 0.25 * h0.y + 0.50 * h1.y + 0.25 * h2.y;
+                    rayHistBx[step] = 0.25 * h0.bx + 0.50 * h1.bx + 0.25 * h2.bx;
+                    rayHistBy[step] = 0.25 * h0.by + 0.50 * h1.by + 0.25 * h2.by;
+                }
+
+                // 1. Expanding Latitude Wavefront Shells (Constant Retarded Time Circles)
+                for (let k = 0; k < 6; k++) {
+                    const rShell = (k + phaseOffset) * shellSpacingR;
+                    if (rShell < 0.04 || rShell > maxRayR) continue;
+                    const stepsBack = rShell / (C_LIGHT * DT_STEP);
+                    const hist = sampleFromRingBuffer(src0, stepsBack);
+                    const emitCenter = worldToScreen(hist.x, hist.y);
+                    const radPx = rShell * scalePx;
+                    const fade = Math.max(0.15, Math.min(1.0, 1.0 - rShell / 2.85));
+                    bulkCtx.strokeStyle = inkOnPool ? `rgba(0, 0, 0, ${(0.65 * fade).toFixed(2)})` : `rgba(56, 189, 248, ${(0.65 * fade).toFixed(2)})`;
+                    bulkCtx.lineWidth = 1.3;
+                    bulkCtx.beginPath();
+                    bulkCtx.arc(emitCenter.x, emitCenter.y, radPx, 0, Math.PI * 2);
+                    bulkCtx.stroke();
+                }
+
+                // 2. Relativistic Aberration Longitude Rays (Smoothly Filtered Vector Lorentz Boost)
+                const numRays = 16;
+                bulkCtx.strokeStyle = inkOnPool ? 'rgba(0, 0, 0, 0.38)' : 'rgba(56, 189, 248, 0.45)';
+                bulkCtx.lineWidth = 1.15;
+                bulkCtx.lineJoin = 'round';
+                for (let j = 0; j < numRays; j++) {
+                    const restAngle = (j / numRays) * Math.PI * 2;
+                    const ex = Math.cos(restAngle);
+                    const ey = Math.sin(restAngle);
+                    bulkCtx.beginPath();
+                    for (let step = 0; step <= nRadSteps; step++) {
+                        const r = (step / nRadSteps) * maxRayR;
+                        let bx = rayHistBx[step];
+                        let by = rayHistBy[step];
+                        const bMag = Math.hypot(bx, by);
+                        const maxGridBeta = 0.86;
+                        if (bMag > maxGridBeta) {
+                            bx *= (maxGridBeta / bMag);
+                            by *= (maxGridBeta / bMag);
+                        }
+                        const b2 = bx * bx + by * by;
+                        let dirX = ex, dirY = ey;
+
+                        if (b2 > 1e-6) {
+                            const gamma = 1.0 / Math.sqrt(1.0 - b2);
+                            const eDotB = ex * bx + ey * by;
+                            const factor = ((gamma - 1.0) / b2) * eDotB + gamma;
+                            const denom = gamma * (1.0 + eDotB);
+                            dirX = (ex + factor * bx) / denom;
+                            dirY = (ey + factor * by) / denom;
+                        }
+
+                        const wx = rayHistX[step] + r * dirX;
+                        const wy = rayHistY[step] + r * dirY;
+                        const scr = worldToScreen(wx, wy);
+                        if (step === 0) bulkCtx.moveTo(scr.x, scr.y);
+                        else bulkCtx.lineTo(scr.x, scr.y);
+                    }
+                    bulkCtx.stroke();
+                }
+            }
+
+            const rNyq = getNyquistHorizonRadius();
+            const s0Screen = worldToScreen(src0.x, src0.y);
+            bulkCtx.setLineDash([5, 4]);
+            bulkCtx.strokeStyle = state.showWavePool ? 'rgba(0, 0, 0, 0.7)' : 'rgba(232, 121, 249, 0.65)';
+            bulkCtx.lineWidth = 1.4;
+            bulkCtx.beginPath();
+            bulkCtx.arc(s0Screen.x, s0Screen.y, rNyq * scalePx, 0, Math.PI * 2);
+            bulkCtx.stroke();
+            bulkCtx.setLineDash([]);
+
+            // Draw circles for ALL active particle sources (0 .. N_p - 1)
+            const sourceRadius = state.numParticles > 32 ? 4.2 : 6.2;
+            for (let i = state.numParticles - 1; i >= 0; i--) {
+                const si = state.sources[i];
+                const scr = worldToScreen(si.x, si.y);
+                const isPos = si.charge >= 0;
+                if (i === 0) {
+                    bulkCtx.fillStyle = state.interactionTarget === 'source0' ? '#ffffff' : '#38bdf8';
+                    bulkCtx.strokeStyle = '#0f172a';
+                    bulkCtx.lineWidth = 2.2;
+                    bulkCtx.beginPath();
+                    bulkCtx.arc(scr.x, scr.y, sourceRadius + 1.2, 0, Math.PI * 2);
+                    bulkCtx.fill();
+                    bulkCtx.stroke();
+                } else {
+                    bulkCtx.fillStyle = isPos ? '#38bdf8' : '#fb7185';
+                    bulkCtx.strokeStyle = '#0f172a';
+                    bulkCtx.lineWidth = 1.6;
+                    bulkCtx.beginPath();
+                    bulkCtx.arc(scr.x, scr.y, sourceRadius, 0, Math.PI * 2);
+                    bulkCtx.fill();
+                    bulkCtx.stroke();
+                }
+            }
+
+            const pScreen = worldToScreen(state.probePos.x, state.probePos.y);
+            bulkCtx.strokeStyle = '#34d399';
+            bulkCtx.lineWidth = 2.0;
+            bulkCtx.beginPath();
+            bulkCtx.arc(pScreen.x, pScreen.y, 7.5, 0, Math.PI * 2);
+            bulkCtx.stroke();
+
+            if (!state.stressTestMode) {
+                const probeF32 = { x: f32(state.probePos.x), y: f32(state.probePos.y) };
+                // Reuse already-uploaded GPU textures (skipUpload = true) for 60 FPS!
+                const gpuProbe = evaluateViaGPUFramebufferReadback([probeF32], state.mT, state.kBin, state.velMode, true)[0];
+                const f32Probe = evaluateShaderEquivalentFloat32(probeF32.x, probeF32.y, state.mT, state.kBin, state.velMode);
+                const exactProbe = evaluateExactAnalyticalLW(probeF32.x, probeF32.y, state.time);
+                const diffMag = Math.hypot(gpuProbe.ex - exactProbe.ex, gpuProbe.ey - exactProbe.ey);
+                const normErrPct = (diffMag / Math.max(exactProbe.mag, 0.25)) * 100;
+                const posErr = Math.hypot(gpuProbe.emitX - exactProbe.emitX, gpuProbe.emitY - exactProbe.emitY);
+
+                document.getElementById('probe-coords').textContent =
+                    `R_ret = ${f32Probe.rRet.toFixed(2)} | θ_ret = ${(f32Probe.thetaRet * 180 / Math.PI).toFixed(1)}°`;
+                document.getElementById('probe-compact').textContent =
+                    `Ex:${gpuProbe.ex >= 0 ? '+' : ''}${gpuProbe.ex.toFixed(2)} Ey:${gpuProbe.ey >= 0 ? '+' : ''}${gpuProbe.ey.toFixed(2)}`;
+                document.getElementById('probe-vel-rad').textContent =
+                    `|E_vel|:${f32Probe.velMag.toFixed(2)} |E_rad|:${f32Probe.radMag.toFixed(2)}`;
+                document.getElementById('probe-exact').textContent =
+                    `Ex:${exactProbe.ex >= 0 ? '+' : ''}${exactProbe.ex.toFixed(2)} Ey:${exactProbe.ey >= 0 ? '+' : ''}${exactProbe.ey.toFixed(2)}`;
+                document.getElementById('probe-err').textContent = `Probe Err: ${normErrPct.toFixed(2)}%`;
+                document.getElementById('probe-dr').textContent = `Pos Δz: ${posErr.toExponential(2)} (GPU Readback)`;
+            }
+        }
+
+        // Renders the Orbit-Centered Pulse-Crossing Sweep via GPU Framebuffer Readback at Identical Float32 Coords
+        function renderShockCrestOrRadialPlot() {
+            if (state.stressTestMode || state.numParticles > 16) return;
+            const cw = plotCanvas.clientWidth;
+            const ch = plotCanvas.clientHeight;
+            if (plotCanvas.width !== cw || plotCanvas.height !== ch) {
+                plotCanvas.width = cw;
+                plotCanvas.height = ch;
+            }
+            plotCtx.clearRect(0, 0, cw, ch);
+
+            const N_SAMPLES = 64;
+            let queryPts = [];
+            const rTarget = 1.15;
+
+            if (state.subviewMode === 'shock_crest' && state.motionMode === 'synchrotron') {
+                const sweep = getPulseCrossingSweepPoints(rTarget, state.time, state.beta, N_SAMPLES);
+                queryPts = sweep.pts;
+                document.getElementById('subview-scale-label').textContent = `δφ_orb ∈ [±${sweep.halfSweep.toExponential(1)} rad]`;
+            } else {
+                const src0 = state.sources[0];
+                const rayAng = Math.atan2(state.probePos.y - src0.y, state.probePos.x - src0.x);
+                const cosA = Math.cos(rayAng), sinA = Math.sin(rayAng);
+                const maxR = 2.2;
+                document.getElementById('subview-scale-label').textContent = `R ∈ [0.1, 2.2]`;
+                for (let i = 0; i < N_SAMPLES; i++) {
+                    const r = 0.10 + (i / (N_SAMPLES - 1)) * (maxR - 0.10);
+                    queryPts.push({ x: f32(src0.x + r * cosA), y: f32(src0.y + r * sinA) });
+                }
+            }
+
+            const gpuRes = evaluateViaGPUFramebufferReadback(queryPts, state.mT, state.kBin, state.velMode, true);
+            const compVals = new Float32Array(N_SAMPLES);
+            const exactVals = new Float32Array(N_SAMPLES);
+            const errVals = new Float32Array(N_SAMPLES);
+
+            let maxVal = 0.5;
+            let sumErrSq = 0.0, sumExactSq = 0.0;
+
+            for (let i = 0; i < N_SAMPLES; i++) {
+                const ex = evaluateExactAnalyticalLW(queryPts[i].x, queryPts[i].y, state.time);
+                const gp = gpuRes[i];
+                compVals[i] = gp.mag;
+                exactVals[i] = ex.mag;
+                errVals[i] = Math.hypot(gp.ex - ex.ex, gp.ey - ex.ey);
+                maxVal = Math.max(maxVal, gp.mag, ex.mag);
+                sumErrSq += errVals[i] * errVals[i];
+                sumExactSq += ex.mag * ex.mag;
+            }
+
+            if (!state.stressTestMode) {
+                const relL2 = sumExactSq > 1e-8 ? Math.sqrt(sumErrSq / sumExactSq) * 100.0 : 0.0;
+                const errEl = document.getElementById('stat-l2err');
+                errEl.textContent = `${relL2.toFixed(2)}%`;
+                errEl.className = relL2 < 5.0 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold';
+            }
+
+            const padL = 26, padR = 10, padT = 12, padB = 20;
+            const pw = cw - padL - padR;
+            const ph = ch - padT - padB;
+
+            plotCtx.strokeStyle = '#34d399';
+            plotCtx.lineWidth = 1.8;
+            plotCtx.setLineDash([4, 3]);
+            plotCtx.beginPath();
+            for (let i = 0; i < N_SAMPLES; i++) {
+                const x = padL + (i / (N_SAMPLES - 1)) * pw;
+                const y = padT + ph - Math.min(1.0, exactVals[i] / maxVal) * ph;
+                if (i === 0) plotCtx.moveTo(x, y); else plotCtx.lineTo(x, y);
+            }
+            plotCtx.stroke();
+            plotCtx.setLineDash([]);
+
+            plotCtx.strokeStyle = '#38bdf8';
+            plotCtx.lineWidth = 1.6;
+            plotCtx.beginPath();
+            for (let i = 0; i < N_SAMPLES; i++) {
+                const x = padL + (i / (N_SAMPLES - 1)) * pw;
+                const y = padT + ph - Math.min(1.0, compVals[i] / maxVal) * ph;
+                if (i === 0) plotCtx.moveTo(x, y); else plotCtx.lineTo(x, y);
+            }
+            plotCtx.stroke();
+
+            plotCtx.strokeStyle = '#fb7185';
+            plotCtx.lineWidth = 1.4;
+            plotCtx.beginPath();
+            for (let i = 0; i < N_SAMPLES; i++) {
+                const x = padL + (i / (N_SAMPLES - 1)) * pw;
+                const y = padT + ph - Math.min(1.0, errVals[i] / maxVal) * ph;
+                if (i === 0) plotCtx.moveTo(x, y); else plotCtx.lineTo(x, y);
+            }
+            plotCtx.stroke();
+        }
+
+        // Executes the Evolved Ring-History + Dense 256-Sample GPU Pulse Verification Suite
+        function runAutomatedGPUVerificationSuite() {
+            const savedBeta = state.beta;
+            const savedMotion = state.motionMode;
+            const savedMT = state.mT;
+            const savedKBin = state.kBin;
+            const savedVelMode = state.velMode;
+            const savedN = state.numParticles;
+            const savedTime = state.time;
+
+            state.numParticles = 1;
+            const testBetas = [0.80, 0.95, 0.99, 0.999, 0.9999];
+            const rTarget = 1.15;
+
+            let reportHTML = `<div class="text-emerald-400 font-semibold mb-1">Dense 256-Sample GPU Suite (Kinematically Consistent Spline + Same F32 Coords):</div>`;
+            reportHTML += `<table class="w-full text-left border-collapse text-[9px] font-mono">`;
+            reportHTML += `<tr class="border-b border-slate-800 text-slate-400"><th>β (γ)</th><th>|Δz| (128→512)</th><th>Bulk 128</th><th>Pulse 128 Norm</th><th>Pulse 512 (4-Vel)</th><th>Pulse 2048 (4-Vel)</th></tr>`;
+
+            function evalEvolvedConfig(betaVal, motionVal, M, kBin, velMode, nShockSamples, uniformMaxR, rEvalTarget, gridMode) {
+                const rEval = rEvalTarget !== undefined ? rEvalTarget : rTarget;
+                const tStart = 2.40;
+                state.time = tStart;
+                seedExactRetardedHistory(state.sources[0], 0, 1, tStart, betaVal, motionVal, M, velMode, uniformMaxR, gridMode);
+
+                for (let step = 0; step < 16; step++) {
+                    stepSimulation(DT_STEP, betaVal, motionVal, M, velMode, uniformMaxR, gridMode);
+                }
+                const tEval = state.time;
+
+                // 1. Bulk azimuthal ring (64 points at R = rEval)
+                const bulkPts = [];
+                for (let k = 0; k < 64; k++) {
+                    const phi = (k / 64) * 2.0 * Math.PI;
+                    bulkPts.push({ x: f32(rEval * Math.cos(phi)), y: f32(rEval * Math.sin(phi)) });
+                }
+                const gpuBulk = evaluateViaGPUFramebufferReadback(bulkPts, M, kBin, velMode);
+                let bulkErrSq = 0, bulkExSq = 0, maxPosErr = 0;
+                for (let k = 0; k < 64; k++) {
+                    const ex = evaluateExactAnalyticalLW(bulkPts[k].x, bulkPts[k].y, tEval, betaVal, motionVal);
+                    const gp = gpuBulk[k];
+                    bulkErrSq += Math.pow(gp.ex - ex.ex, 2) + Math.pow(gp.ey - ex.ey, 2);
+                    bulkExSq += ex.mag * ex.mag;
+                    maxPosErr = Math.max(maxPosErr, Math.hypot(gp.emitX - ex.emitX, gp.emitY - ex.emitY));
+                }
+
+                // 2. Orbit-centered pulse-crossing sweep evaluated at IDENTICAL Float32 coordinates
+                const sweep = getPulseCrossingSweepPoints(rEval, tEval, betaVal, nShockSamples);
+                const shockPts = sweep.pts;
+                const gpuShock = evaluateViaGPUFramebufferReadback(shockPts, M, kBin, velMode);
+                let shockErrSq = 0, shockExSq = 0;
+                let cpuF32ErrSq = 0, cpuF64ErrSq = 0;
+                let coordRoundDiffSq = 0;
+                let gpuCpuDiffSq = 0;
+                for (let k = 0; k < nShockSamples; k++) {
+                    const exSameF32 = evaluateExactAnalyticalLW(shockPts[k].x, shockPts[k].y, tEval, betaVal, motionVal);
+                    const exUnrounded64 = evaluateExactAnalyticalLW(shockPts[k].x64, shockPts[k].y64, tEval, betaVal, motionVal);
+                    const gp = gpuShock[k];
+                    const f32Cpu = evaluateShaderEquivalentFloat32(shockPts[k].x, shockPts[k].y, M, kBin, velMode);
+                    const f64Cpu = evaluateCompactifiedFloat64(shockPts[k].x64, shockPts[k].y64, M, velMode);
+
+                    gpuCpuDiffSq += Math.pow(gp.ex - f32Cpu.ex, 2) + Math.pow(gp.ey - f32Cpu.ey, 2);
+                    shockErrSq += Math.pow(gp.ex - exSameF32.ex, 2) + Math.pow(gp.ey - exSameF32.ey, 2);
+                    cpuF32ErrSq += Math.pow(f32Cpu.ex - exSameF32.ex, 2) + Math.pow(f32Cpu.ey - exSameF32.ey, 2);
+                    cpuF64ErrSq += Math.pow(f64Cpu.ex - exUnrounded64.ex, 2) + Math.pow(f64Cpu.ey - exUnrounded64.ey, 2);
+                    shockExSq += exSameF32.mag * exSameF32.mag;
+                    coordRoundDiffSq += Math.pow(exSameF32.ex - exUnrounded64.ex, 2) + Math.pow(exSameF32.ey - exUnrounded64.ey, 2);
+                }
+
+                return {
+                    bulkL2: Math.sqrt(bulkErrSq / Math.max(1e-12, bulkExSq)) * 100.0,
+                    shockL2: Math.sqrt(shockErrSq / Math.max(1e-12, shockExSq)) * 100.0,
+                    cpuF32L2: Math.sqrt(cpuF32ErrSq / Math.max(1e-12, shockExSq)) * 100.0,
+                    cpuF64L2: Math.sqrt(cpuF64ErrSq / Math.max(1e-12, shockExSq)) * 100.0,
+                    coordRoundL2: Math.sqrt(coordRoundDiffSq / Math.max(1e-12, shockExSq)) * 100.0,
+                    gpuCpuRelL2: Math.sqrt(gpuCpuDiffSq / Math.max(1e-12, shockExSq)) * 100.0,
+                    posErr: maxPosErr
+                };
+            }
+
+            let diag512 = null, diag1024 = null, diag2048 = null;
+            const __rows = [];
+            for (const b of testBetas) {
+                const g = 1.0 / Math.sqrt((1.0 - b) * (1.0 + b));
+                const r128Norm  = evalEvolvedConfig(b, 'synchrotron', 128, 9, 1, 256);
+                const r5124Vel  = evalEvolvedConfig(b, 'synchrotron', 512, 11, 2, 256);
+                const r20484Vel = evalEvolvedConfig(b, 'synchrotron', 2048, 13, 2, 256);
+                const posRatio = (r128Norm.posErr / Math.max(1e-9, r5124Vel.posErr)).toFixed(0);
+                __rows.push({ beta: b, r128Norm, r5124Vel, r20484Vel });
+
+                if (b === 0.9999) {
+                    diag512  = r5124Vel;
+                    diag1024 = evalEvolvedConfig(b, 'synchrotron', 1024, 12, 2, 256);
+                    diag2048 = r20484Vel;
+                }
+
+                reportHTML += `<tr class="border-b border-slate-900">
+                    <td class="py-0.5 text-sky-300">${b.toFixed(4)}c (${g.toFixed(1)})</td>
+                    <td>${r128Norm.posErr.toExponential(1)} (${posRatio}×)</td>
+                    <td>${r128Norm.bulkL2.toFixed(2)}%</td>
+                    <td class="text-amber-300">${r128Norm.shockL2.toFixed(2)}%</td>
+                    <td class="text-emerald-300 font-semibold">${r5124Vel.shockL2.toFixed(2)}%</td>
+                    <td class="text-sky-300 font-semibold">${r20484Vel.shockL2.toFixed(2)}%</td>
+                </tr>`;
+            }
+
+            // Practical Significance Benchmark:
+            // 1. Matched-Reach Multi-Grid Benchmark (M = 128 Texels spanning R_max = 220.0 at beta = 0.99c):
+            const comp128Reach220 = evalEvolvedConfig(0.99, 'synchrotron', 128, 9, 2, 256, 220.0, 1.15, 'compactified');
+            const log128Reach220  = evalEvolvedConfig(0.99, 'synchrotron', 128, 9, 2, 256, 220.0, 1.15, 'log');
+            const pow128Reach220  = evalEvolvedConfig(0.99, 'synchrotron', 128, 9, 2, 256, 220.0, 1.15, 'power2');
+            const unif128Reach220 = evalEvolvedConfig(0.99, 'synchrotron', 128, 9, 2, 256, 220.0, 1.15, 'uniform');
+
+            // 2. Unbounded Domain Coverage Test at Far-Field Observer R_obs = 45.0 (Uniform buffer with R_max = 18.0 vs Compactified M=128):
+            const compFar45 = evalEvolvedConfig(0.80, 'uniform', 128, 9, 2, 64, 18.0, 45.0, 'compactified');
+            const unifFar45 = evalEvolvedConfig(0.80, 'uniform', 128, 9, 2, 64, 18.0, 45.0, 'uniform');
+
+            reportHTML += `</table>`;
+            reportHTML += `<div class="mt-1.5 text-[9px] text-slate-400 leading-tight">
+                • <b>γ=70.7 (0.9999c) Convergence vs Float32 Floor (M=512 → 1024 → 2048):</b><br>
+                  &nbsp;&nbsp;- <b>Spline Float64 vs Exact:</b> 512: <b>${diag512.cpuF64L2.toFixed(4)}%</b> | 1024: <b>${diag1024.cpuF64L2.toFixed(5)}%</b> | 2048: <b>${diag2048.cpuF64L2.toFixed(5)}%</b><br>
+                  &nbsp;&nbsp;- <b>GPU Float32 vs Exact:</b> 512: <b>${diag512.shockL2.toFixed(2)}%</b> | 1024: <b>${diag1024.shockL2.toFixed(2)}%</b> | 2048: <b>${diag2048.shockL2.toFixed(2)}%</b> (GPU vs CPU-F32 FMA Δ: <b>${diag512.gpuCpuRelL2.toFixed(3)}%</b>)<br>
+                • <b>128-Texel Adaptive Grid Benchmark (All spanning R ∈ [0, 220], β=0.99c):</b><br>
+                  &nbsp;&nbsp;- <b>Compactified L·tan(θ/2):</b> <b class="text-emerald-300">${comp128Reach220.shockL2.toFixed(2)}%</b> | <b>Quadratic u²:</b> <span class="text-amber-300">${pow128Reach220.shockL2.toFixed(2)}%</span> | <b>Log-Exp:</b> <span class="text-amber-300">${log128Reach220.shockL2.toFixed(2)}%</span> | <b>Uniform:</b> <span class="text-rose-400">${unif128Reach220.shockL2.toFixed(1)}%</span><br>
+                • <b>Unbounded Domain Coverage (Observer at R_obs = 45.0, M=128):</b><br>
+                  &nbsp;&nbsp;- <b>Compactified:</b> <b class="text-emerald-300">${compFar45.bulkL2.toFixed(2)}%</b> vs <b>Finite Buffer (R_max=18):</b> <span class="text-rose-400 font-semibold">${unifFar45.bulkL2.toFixed(1)}% (Out of Buffer!)</span>
+            </div>`;
+
+            window.__suite = { rows: __rows, diag512, diag1024, diag2048, comp128Reach220, log128Reach220, pow128Reach220, unif128Reach220, compFar45, unifFar45 };
+            document.getElementById('suite-output').innerHTML = reportHTML;
+
+            state.beta = savedBeta;
+            state.motionMode = savedMotion;
+            state.mT = savedMT;
+            state.kBin = savedKBin;
+            state.velMode = savedVelMode;
+            state.numParticles = savedN;
+            state.time = savedTime;
+            reseedAllSources();
+        }
+
+        function updateRelativisticTelemetry() {
+            const oneMinusBeta2 = (1.0 - state.beta) * (1.0 + state.beta);
+            state.gamma = 1 / Math.sqrt(Math.max(1e-14, oneMinusBeta2));
+            const betaStr = state.beta.toFixed(4);
+            document.getElementById('stat-beta').textContent = betaStr;
+            document.getElementById('stat-gamma').textContent = state.gamma.toFixed(2);
+            document.getElementById('val-beta').textContent = `${betaStr}c (γ=${state.gamma.toFixed(2)})`;
+            const rNyq = getNyquistHorizonRadius();
+            document.getElementById('stat-nyquist').textContent = `${(rNyq / state.scaleL).toFixed(2)}L`;
+        }
+
+        function getWorldCoordsFromEvent(e) {
+            const rect = bulkCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const u = (clientX - rect.left) / rect.width;
+            const v = (clientY - rect.top) / rect.height;
+            const aspect = rect.width / Math.max(1, rect.height);
+            return { x: (u - 0.5) * 2.0 * aspect * 1.45, y: (0.5 - v) * 2.0 * 1.45 };
+        }
+
+        bulkCanvas.addEventListener('pointerdown', (e) => {
+            const pt = getWorldCoordsFromEvent(e);
+            const distToProbe = Math.hypot(pt.x - state.probePos.x, pt.y - state.probePos.y);
+
+            // Only grab the green probe if the user clicks directly inside the 7.5px green target ring (< 0.085 world units);
+            // dragging anywhere on empty space or near particles moves Source #0!
+            if (distToProbe < 0.085) {
+                state.interactionTarget = 'probe';
+                state.probePos = pt;
+            } else {
+                state.interactionTarget = 'source0';
+                state.sources[0].returningToOrbit = true;
+                state.draggedSourceTarget = pt;
+            }
+            bulkCanvas.setPointerCapture(e.pointerId);
+        });
+        bulkCanvas.addEventListener('pointermove', (e) => {
+            if (!state.interactionTarget) return;
+            const pt = getWorldCoordsFromEvent(e);
+            if (state.interactionTarget === 'source0') {
+                state.draggedSourceTarget = pt;
+            } else if (state.interactionTarget === 'probe') {
+                state.probePos = pt;
+            }
+        });
+        bulkCanvas.addEventListener('pointerup', () => { state.interactionTarget = null; });
+        bulkCanvas.addEventListener('pointercancel', () => { state.interactionTarget = null; });
+
+        document.getElementById('btn-stress').addEventListener('click', (e) => {
+            state.stressTestMode = !state.stressTestMode;
+            if (state.stressTestMode) {
+                e.target.textContent = 'GPU Stress Mode: ON';
+                e.target.className = 'px-2 py-1 rounded text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition';
+            } else {
+                e.target.textContent = 'GPU Stress Mode: OFF';
+                e.target.className = 'px-2 py-1 rounded text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition';
+            }
+        });
+
+        document.getElementById('btn-snap-crest').addEventListener('click', () => {
+            const crest = getExactShockCrestPoint(1.15, state.time, state.beta);
+            state.probePos = { x: crest.x, y: crest.y };
+        });
+
+        document.getElementById('btn-mt').addEventListener('click', (e) => {
+            const shells = [128, 512, 1024, 2048];
+            const kBins = [9, 11, 12, 13];
+            const idx = (shells.indexOf(state.mT) + 1) % shells.length;
+            state.mT = shells[idx];
+            state.kBin = kBins[idx];
+            e.target.textContent = `Shells M_T: ${state.mT}`;
+            document.getElementById('badge-shells').textContent = `M_T=${state.mT} | Kinematically Consistent Bernstein-Hermite`;
+            updateRelativisticTelemetry();
+            reseedAllSources();
+        });
+
+        document.getElementById('btn-velmode').addEventListener('click', (e) => {
+            state.velMode = (state.velMode + 1) % 3;
+            const labels = ['Mode: Raw β', 'Mode: Norm-β', 'Mode: 4-Vel u=γβ'];
+            const descs = [
+                'Raw Catmull-Rom β (Shows Chord Droop at High γ)',
+                'Arc-Length Normalized β + Spline-Consistent Direction',
+                'Proper 4-Vel u = γβ + Spline-Consistent Direction'
+            ];
+            e.target.textContent = labels[state.velMode];
+            document.getElementById('velmode-desc').textContent = descs[state.velMode];
+            reseedAllSources();
+        });
+
+        document.getElementById('btn-run-suite').addEventListener('click', () => {
+            runAutomatedGPUVerificationSuite();
+        });
+
+        document.getElementById('btn-wavepool').addEventListener('click', (e) => {
+            state.showWavePool = !state.showWavePool;
+            e.target.textContent = state.showWavePool ? 'Wave Pool: ON' : 'Wave Pool: OFF';
+        });
+
+        document.getElementById('btn-impostors').addEventListener('click', (e) => {
+            state.showImpostors = !state.showImpostors;
+            e.target.textContent = state.showImpostors ? '3D Sphere Impostors: ON' : '3D Sphere Impostors: OFF';
+        });
+
+        document.getElementById('btn-fibers').addEventListener('click', (e) => {
+            state.showDilatingFibers = !state.showDilatingFibers;
+            e.target.textContent = state.showDilatingFibers ? 'Shells & Rays: ON' : 'Shells & Rays: OFF';
+        });
+
+        document.getElementById('slider-beta').addEventListener('input', (e) => {
+            state.beta = sliderToBeta(parseFloat(e.target.value));
+            updateRelativisticTelemetry();
+            reseedAllSources();
+        });
+
+        document.getElementById('slider-scale').addEventListener('input', (e) => {
+            state.scaleL = parseFloat(e.target.value);
+            document.getElementById('val-scale').textContent = state.scaleL.toFixed(2);
+            updateRelativisticTelemetry();
+            reseedAllSources();
+        });
+
+        document.getElementById('slider-eps').addEventListener('input', (e) => {
+            state.softEps = parseFloat(e.target.value);
+            document.getElementById('val-eps').textContent = state.softEps.toFixed(3);
+        });
+
+        document.getElementById('slider-particles').addEventListener('input', (e) => {
+            state.numParticles = parseInt(e.target.value, 10);
+            document.getElementById('val-particles').textContent = state.numParticles;
+            reseedAllSources();
+        });
+
+        document.getElementById('slider-freq').addEventListener('input', (e) => {
+            state.omega = parseFloat(e.target.value);
+            document.getElementById('val-freq').textContent = state.omega.toFixed(1);
+            updateRelativisticTelemetry();
+            reseedAllSources();
+        });
+
+        document.getElementById('btn-scheme').addEventListener('click', (e) => {
+            state.useDiffusiveEulerian = !state.useDiffusiveEulerian;
+            e.target.textContent = state.useDiffusiveEulerian ? 'Restore Pre-Filtered Ring' : 'Compare Eulerian';
+            if (!state.useDiffusiveEulerian) reseedAllSources();
+        });
+
+        document.getElementById('btn-toggle-subview').addEventListener('click', (e) => {
+            state.subviewMode = state.subviewMode === 'shock_crest' ? 'radial' : 'shock_crest';
+            e.target.textContent = state.subviewMode === 'shock_crest' ? 'Show Radial Ray' : 'Show Shock Crest';
+        });
+
+        document.querySelectorAll('.motion-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.motion-btn').forEach(b => {
+                    b.className = 'motion-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition';
+                });
+                btn.className = 'motion-btn py-1.5 px-2 rounded-lg border border-emerald-500 bg-emerald-500/20 text-white font-medium text-left transition';
+                state.motionMode = btn.dataset.motion;
+                if (state.motionMode === 'swarm' && state.numParticles < 12) {
+                    state.numParticles = 16;
+                    document.getElementById('slider-particles').value = 16;
+                    document.getElementById('val-particles').textContent = '16';
+                }
+                reseedAllSources();
+            });
+        });
+
+        document.querySelectorAll('.channel-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.channel-btn').forEach(b => {
+                    b.className = 'channel-btn py-1.5 px-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white text-left transition';
+                });
+                btn.className = 'channel-btn py-1.5 px-2 rounded-lg border border-sky-500 bg-sky-500/20 text-white font-medium text-left transition';
+                state.channel = btn.dataset.channel;
+            });
+        });
+
+        document.getElementById('btn-pause').addEventListener('click', (e) => {
+            state.paused = !state.paused;
+            e.target.textContent = state.paused ? 'Resume' : 'Pause';
+        });
+
+        initSources();
+        document.getElementById('slider-beta').value = betaToSlider(state.beta);
+        updateRelativisticTelemetry();
+        setTimeout(runAutomatedGPUVerificationSuite, 150);
+
+        let fpsFrames = 0;
+        let fpsLastUpdate = performance.now();
+
+        function animate(now) {
+            fpsFrames++;
+            if (now - fpsLastUpdate >= 400) {
+                state.fps = Math.round((fpsFrames * 1000) / (now - fpsLastUpdate));
+                document.getElementById('fps-readout').textContent = `${state.fps} FPS`;
+                fpsFrames = 0;
+                fpsLastUpdate = now;
+            }
+            if (!state.paused) {
+                const subSteps = 5;
+                for (let sub = 0; sub < subSteps; sub++) {
+                    stepSimulation(DT_STEP, undefined, undefined, undefined, undefined, undefined, undefined, sub < subSteps - 1);
+                }
+            }
+            renderBulkField();
+            renderShockCrestOrRadialPlot();
+            requestAnimationFrame(animate);
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
