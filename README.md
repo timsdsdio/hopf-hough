@@ -6,7 +6,8 @@ hopf-hough computes the electric field **E** (and the out-of-plane magnetic fiel
 
 It adds no new physics. It is a fast, verifiable way to look at, and export, near-field and radiation-zone structure — for example how a synchrotron pulse forms — and to see how accurate the numbers are.
 
-- **Live app:** https://timsdsdio.github.io/hopf-hough/ (or open `dist/hopf-hough.html` after building)
+- **Live app:** https://timsdsdio.github.io/hopf-hough/ (the author's original single-file solver, `web/index.html`)
+- **TypeScript build (v6 kernel):** https://timsdsdio.github.io/hopf-hough/v6/ (or open `dist/hopf-hough.html` after building)
 - **Preprint:** T. Huff, *A Causality-Preserving, Stereographically Compactified Worldline Representation for Retarded Liénard–Wiechert Electrodynamics*, Zenodo (2026), [doi:10.5281/zenodo.23581323](https://doi.org/10.5281/zenodo.23581323)
 
 ## What it computes

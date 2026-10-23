@@ -24,7 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: mkdir -p site && cp dist/hopf-hough.html site/index.html && cp dist/hopf-hough.iife.js site/ && cp -r examples site/examples
+      - run: mkdir -p site/v6 && cp web/index.html site/index.html && cp dist/hopf-hough.html site/v6/index.html && cp dist/hopf-hough.iife.js site/ && cp -r examples site/examples
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
