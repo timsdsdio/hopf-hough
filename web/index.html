@@ -2406,6 +2406,70 @@ void main() {
             return pointsArray.map(pt => evaluateShaderEquivalentFloat32(pt.x, pt.y, M, kBin, velMode));
         }
 
+        // ---------------- physical dragging ----------------
+        // The pointer is the user's intent; the charge follows it on a physically consistent worldline:
+        // speed below the cap (< c), acceleration and jerk bounded by what the shell history can resolve,
+        // stored acceleration = the acceleration actually applied, position integrated by the trapezoid rule.
+        const DRAG_PHYSICS = {
+            closeRate: 7.5,      // 1/time: how fast the position error is closed when there is acceleration to spare
+            pointerTau: 0.02,    // time: smoothing of the pointer-velocity estimate (the intended velocity)
+            velTau: 0.12,        // time: inner velocity loop
+            jerkTau: 0.05,       // time: shortest ramp from zero to full acceleration (bounds jerk)
+            brake: 0.6,          // share of the acceleration budget reserved when planning to stop at the target
+            accel128: 1.25,      // acceleration budget (dβ/dt, per time unit) at M_T = 128; scales as sqrt(M_T/128)
+            maxBeta: 0.90,       // dragging speed cap (also capped by the β slider)
+        };
+        function dragAccelBudget() { return DRAG_PHYSICS.accel128 * Math.sqrt(Math.max(1, state.mT / 128)); }
+        function physicalDragStep(s, goal, dt, path) {
+            const P = DRAG_PHYSICS, aMax = dragAccelBudget();
+            const st = s._drag || (s._drag = { px: goal.x, py: goal.y, vx: 0, vy: 0 });
+            // 1) intended velocity: the prescribed path's own velocity when returning, else the pointer's (smoothed)
+            let vix, viy, aix = 0, aiy = 0, bCap = Math.min(P.maxBeta, state.beta);
+            if (path) {
+                vix = path.bx; viy = path.by;
+                // feed-forward the path's acceleration from its velocity (consistent with the path itself)
+                if (st.pbx !== undefined) { aix = (path.bx - st.pbx) / dt; aiy = (path.by - st.pby) / dt; }
+                else { aix = path.bdx * C_LIGHT; aiy = path.bdy * C_LIGHT; }
+                st.pbx = path.bx; st.pby = path.by;
+                bCap = Math.max(bCap, Math.hypot(path.bx, path.by));
+                st.px = goal.x; st.py = goal.y; st.vx = vix; st.vy = viy;
+            } else {
+                const k = 1 - Math.exp(-dt / P.pointerTau);
+                st.vx += k * ((goal.x - st.px) / dt / C_LIGHT - st.vx);
+                st.vy += k * ((goal.y - st.py) / dt / C_LIGHT - st.vy);
+                st.px = goal.x; st.py = goal.y;
+                vix = st.vx; viy = st.vy;
+            }
+            bCap = Math.min(bCap, 0.9999995);
+            // 2) closing velocity on the position error, limited so the charge can still stop at the target
+            // position error against where the charge will be at the end of this step if it coasts
+            const ex = goal.x - (s.x + s.bx * C_LIGHT * dt), ey = goal.y - (s.y + s.by * C_LIGHT * dt), e = Math.hypot(ex, ey);
+            const bA = P.brake * aMax, cT = C_LIGHT * P.jerkTau;
+            const vBrake = (Math.sqrt(cT * cT + 2 * C_LIGHT * e / bA) - cT) * bA / C_LIGHT;
+            const vClose = Math.min(bCap, P.closeRate * e / C_LIGHT, vBrake);
+            let vdx = vix + (e > 1e-12 ? vClose * ex / e : 0), vdy = viy + (e > 1e-12 ? vClose * ey / e : 0);
+            const vdm = Math.hypot(vdx, vdy);
+            if (vdm > bCap) { vdx *= bCap / vdm; vdy *= bCap / vdm; }
+            // 3) acceleration toward that velocity: clamped to the budget, then jerk-limited
+            const ax0 = s.bdx * C_LIGHT, ay0 = s.bdy * C_LIGHT;
+            // (velocity error against the velocity the feed-forward alone would reach by the end of the step)
+            let adx = aix + (vdx - (s.bx + aix * dt)) / P.velTau, ady = aiy + (vdy - (s.by + aiy * dt)) / P.velTau;
+            const am = Math.hypot(adx, ady), aLim = Math.max(aMax, Math.hypot(aix, aiy));
+            if (am > aLim) { adx *= aLim / am; ady *= aLim / am; }
+            let jx = adx - ax0, jy = ady - ay0;
+            const jm = Math.hypot(jx, jy), jl = (aLim / P.jerkTau) * dt;
+            if (jm > jl) { jx *= jl / jm; jy *= jl / jm; }
+            let ax = ax0 + jx, ay = ay0 + jy;
+            // 4) integrate; the hard speed cap re-derives the acceleration actually applied
+            let nbx = s.bx + ax * dt, nby = s.by + ay * dt;
+            const nm = Math.hypot(nbx, nby);
+            if (nm > bCap) { nbx *= bCap / nm; nby *= bCap / nm; ax = (nbx - s.bx) / dt; ay = (nby - s.by) / dt; }
+            return {
+                x: s.x + 0.5 * (s.bx + nbx) * C_LIGHT * dt, y: s.y + 0.5 * (s.by + nby) * C_LIGHT * dt,
+                bx: nbx, by: nby, bdx: ax / C_LIGHT, bdy: ay / C_LIGHT,
+            };
+        }
+
         function stepSimulation(dt, betaOverride, motionOverride, mTOverride, velModeOverride, uniformMaxR, gridMode, skipShellPopulate) {
             state.time += dt;
             const N = state.numParticles;
@@ -2416,53 +2480,25 @@ void main() {
             for (let i = 0; i < N; i++) {
                 const s = state.sources[i];
 
-                // Allow smooth, C^2 spring-damper manual dragging of Source #0 AND subluminal return to orbit upon release!
+                // Physical dragging of Source #0 and a consistent, subluminal return to its path on release (physicalDragStep).
                 const kin = getExactTrajectoryKinematics(i, N, state.time, betaOverride, motionOverride);
                 s.charge = kin.charge;
 
                 if (i === 0 && betaOverride === undefined && (state.interactionTarget === 'source0' || s.returningToOrbit)) {
-                    const goalX = state.interactionTarget === 'source0' ? state.draggedSourceTarget.x : kin.x;
-                    const goalY = state.interactionTarget === 'source0' ? state.draggedSourceTarget.y : kin.y;
-                    const goalBx = state.interactionTarget === 'source0' ? 0.0 : kin.bx;
-                    const goalBy = state.interactionTarget === 'source0' ? 0.0 : kin.by;
-
-                    const dx = goalX - s.x;
-                    const dy = goalY - s.y;
-                    const distToGoal = Math.hypot(dx, dy);
-                    const dvGoal = Math.hypot(s.bx - goalBx, s.by - goalBy);
-
-                    if (state.interactionTarget !== 'source0' && distToGoal < 0.008 && dvGoal < 0.03) {
-                        s.returningToOrbit = false;
+                    const dragging = state.interactionTarget === 'source0';
+                    const goal = dragging ? state.draggedSourceTarget : { x: kin.x, y: kin.y };
+                    // Hand back to the prescribed path only once the two worldlines nearly coincide, so the
+                    // hand-off cannot introduce a superluminal jump.
+                    if (!dragging && Math.hypot(goal.x - (s.x + s.bx * C_LIGHT * dt), goal.y - (s.y + s.by * C_LIGHT * dt)) < 1e-4 && Math.hypot(s.bx - kin.bx, s.by - kin.by) < 1e-3 + Math.hypot(kin.bdx, kin.bdy) * C_LIGHT * dt) {
+                        s.returningToOrbit = false; s._drag = null;
                         s.x = kin.x; s.y = kin.y;
                         s.bx = kin.bx; s.by = kin.by;
                         s.bdx = kin.bdx; s.bdy = kin.bdy;
                     } else {
-                        const springK = 7.5;
-                        let targetBx = goalBx + (dx * springK) / C_LIGHT;
-                        let targetBy = goalBy + (dy * springK) / C_LIGHT;
-                        const targetBMag = Math.hypot(targetBx, targetBy);
-                        const maxDragBeta = Math.min(0.90, state.beta);
-                        if (targetBMag > maxDragBeta) {
-                            targetBx *= (maxDragBeta / targetBMag);
-                            targetBy *= (maxDragBeta / targetBMag);
-                        }
-                        const blend = 0.08;
-                        const newBx = (1.0 - blend) * s.bx + blend * targetBx;
-                        const newBy = (1.0 - blend) * s.by + blend * targetBy;
-                        let rawBdx = ((newBx - s.bx) / Math.max(1e-5, dt)) / C_LIGHT;
-                        let rawBdy = ((newBy - s.by) / Math.max(1e-5, dt)) / C_LIGHT;
-                        const accMag = Math.hypot(rawBdx, rawBdy);
-                        const maxDragAcc = 0.85;
-                        if (accMag > maxDragAcc) {
-                            rawBdx *= (maxDragAcc / accMag);
-                            rawBdy *= (maxDragAcc / accMag);
-                        }
-                        s.bdx = 0.90 * s.bdx + 0.10 * rawBdx;
-                        s.bdy = 0.90 * s.bdy + 0.10 * rawBdy;
-                        s.bx = newBx;
-                        s.by = newBy;
-                        s.x += s.bx * C_LIGHT * dt;
-                        s.y += s.by * C_LIGHT * dt;
+                        const next = physicalDragStep(s, goal, dt, dragging ? null : kin);
+                        s.x = next.x; s.y = next.y;
+                        s.bx = next.bx; s.by = next.by;
+                        s.bdx = next.bdx; s.bdy = next.bdy;
                     }
                 } else {
                     s.x = kin.x; s.y = kin.y;
@@ -2985,6 +3021,7 @@ void main() {
             } else {
                 state.interactionTarget = 'source0';
                 state.sources[0].returningToOrbit = true;
+                state.sources[0]._drag = null;   // restart the pointer-velocity estimate; acceleration stays continuous
                 state.draggedSourceTarget = pt;
             }
             bulkCanvas.setPointerCapture(e.pointerId);
