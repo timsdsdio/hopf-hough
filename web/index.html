@@ -2804,7 +2804,8 @@ void main() {
             const testBetas = [0.80, 0.95, 0.99, 0.999, 0.9999];
             const rTarget = 1.15;
 
-            let reportHTML = `<div class="text-emerald-400 font-semibold mb-1">Dense 256-Sample GPU Suite (Kinematically Consistent Spline + Same F32 Coords):</div>`;
+            const suiteKernelV6 = state.kernel === 'v6' && !!glProgV6;
+            let reportHTML = `<div class="text-emerald-400 font-semibold mb-1">Dense 256-Sample GPU Suite (Kinematically Consistent Spline + Same F32 Coords) · Kernel: ${suiteKernelV6 ? 'v6 (accurate)' : 'v5 (fast)'}:</div>`;
             reportHTML += `<table class="w-full text-left border-collapse text-[9px] font-mono">`;
             reportHTML += `<tr class="border-b border-slate-800 text-slate-400"><th>β (γ)</th><th>|Δz| (128→512)</th><th>Bulk 128</th><th>Pulse 128 Norm</th><th>Pulse 512 (4-Vel)</th><th>Pulse 2048 (4-Vel)</th></tr>`;
 
@@ -2908,11 +2909,15 @@ void main() {
             reportHTML += `<div class="mt-1.5 text-[9px] text-slate-400 leading-tight">
                 • <b>γ=70.7 (0.9999c) Convergence vs Float32 Floor (M=512 → 1024 → 2048):</b><br>
                   &nbsp;&nbsp;- <b>Spline Float64 vs Exact:</b> 512: <b>${diag512.cpuF64L2.toFixed(4)}%</b> | 1024: <b>${diag1024.cpuF64L2.toFixed(5)}%</b> | 2048: <b>${diag2048.cpuF64L2.toFixed(5)}%</b><br>
-                  &nbsp;&nbsp;- <b>GPU Float32 vs Exact:</b> 512: <b>${diag512.shockL2.toFixed(2)}%</b> | 1024: <b>${diag1024.shockL2.toFixed(2)}%</b> | 2048: <b>${diag2048.shockL2.toFixed(2)}%</b> (GPU vs CPU-F32 FMA Δ: <b>${diag512.gpuCpuRelL2.toFixed(3)}%</b>)<br>
+                  &nbsp;&nbsp;- <b>GPU Float32 vs Exact:</b> 512: <b>${diag512.shockL2.toFixed(2)}%</b> | 1024: <b>${diag1024.shockL2.toFixed(2)}%</b> | 2048: <b>${diag2048.shockL2.toFixed(2)}%</b> ${suiteKernelV6
+                    ? `(GPU vs CPU float32 emulation of the <i>v5</i> algorithm: ${diag512.gpuCpuRelL2.toFixed(3)}%; with v6 selected this measures the kernel change, not an error)`
+                    : `(GPU vs CPU-F32 FMA Δ: <b>${diag512.gpuCpuRelL2.toFixed(3)}%</b>)`}<br>
                 • <b>128-Texel Adaptive Grid Benchmark (All spanning R ∈ [0, 220], β=0.99c):</b><br>
                   &nbsp;&nbsp;- <b>Compactified L·tan(θ/2):</b> <b class="text-emerald-300">${comp128Reach220.shockL2.toFixed(2)}%</b> | <b>Quadratic u²:</b> <span class="text-amber-300">${pow128Reach220.shockL2.toFixed(2)}%</span> | <b>Log-Exp:</b> <span class="text-amber-300">${log128Reach220.shockL2.toFixed(2)}%</span> | <b>Uniform:</b> <span class="text-rose-400">${unif128Reach220.shockL2.toFixed(1)}%</span><br>
+                  &nbsp;&nbsp;<span class="text-slate-500">(v5 test, relative comparison only. The v6 paper, "Radial grid at equal memory", re-measures the grids with the prefilter off for every grid; absolute values differ.)</span><br>
                 • <b>Unbounded Domain Coverage (Observer at R_obs = 45.0, M=128):</b><br>
-                  &nbsp;&nbsp;- <b>Compactified:</b> <b class="text-emerald-300">${compFar45.bulkL2.toFixed(2)}%</b> vs <b>Finite Buffer (R_max=18):</b> <span class="text-rose-400 font-semibold">${unifFar45.bulkL2.toFixed(1)}% (Out of Buffer!)</span>
+                  &nbsp;&nbsp;- <b>Compactified:</b> <b class="text-emerald-300">${compFar45.bulkL2.toFixed(2)}%</b> vs <b>Finite Buffer (R_max=18):</b> <span class="text-rose-400 font-semibold">${unifFar45.bulkL2.toFixed(1)}% (Out of Buffer!)</span><br>
+                  &nbsp;&nbsp;<span class="text-slate-500">(v5 test of domain reach. Its preset moves at 0.44c without acceleration, so it checks a Coulomb-like field, not radiation; the v6 paper withdrew it as a far-field accuracy result. See v6, "Far field and the validity indicator".)</span>
             </div>`;
 
             document.getElementById('suite-output').innerHTML = reportHTML;
