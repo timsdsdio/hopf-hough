@@ -218,6 +218,29 @@ On smooth histories resampled onto the shells, the unlimited cubic rarely exceed
 \subsection{Cost}
 In software rendering (640~$\times$~400 pixels, 16 sources, $M_T = 512$, three repetitions) the production kernel took 1.1--1.8$\times$ the time of the version-5 algorithm, with large run-to-run variation; an operation count estimates about 2.7$\times$ more float32 arithmetic per root-function evaluation for the double-float version. Software timings say little about GPU cost, and timings on GPU hardware are not yet reported; the in-app benchmark measures them.
 
+\subsection{Comparison with PyCharge}
+To separate the algorithm from the language, we ported the method to JAX (float64) and ran it against PyCharge 2.0.1 \cite{pycharge2022} on the same CPU, the same problems (charges on circular orbits of radius 0.85) and the same $256\times256$ grid, against the exact field (\path{validation/benchmarks/}). PyCharge was run both with its default solver and with the cheapest fixed-point/Newton budgets that converge on the full grid.
+
+\begin{table}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+case (65,536 points) & PyCharge, default & PyCharge, cheapest converged & this method (JAX), $M_T = 2048$ & its error \\
+\midrule
+$\beta = 0.9$, 1 source    & 0.27 s & 0.040 s & 0.038 s & $1.1\times10^{-6}$ \\
+$\beta = 0.99$, 1 source   & 0.28 s & 0.066 s & 0.061 s & $6.2\times10^{-6}$ \\
+$\beta = 0.999$, 1 source  & 0.53 s & 0.18 s  & 0.034 s & $2.4\times10^{-5}$ \\
+$\beta = 0.9999$, 1 source & 0.33 s & 0.34 s  & 0.039 s & $2.9\times10^{-5}$ \\
+$\beta = 0.9$, 16 sources  & 5.1 s  & 0.61 s  & 0.66 s  & $1.0\times10^{-6}$ \\
+\bottomrule
+\end{tabular}}
+\caption{Float64 on a 2-core CPU, medians of three runs after compilation. PyCharge is exact when it converges ($10^{-11}$--$10^{-14}$); the method here interpolates a sampled history.}
+\label{tab:pycharge}
+\end{table}
+
+The two are tied for $\gamma \lesssim 7$ and for 16 sources; at $\gamma = 22$ and $71$ the method is 5$\times$ and 9$\times$ faster, because PyCharge's fixed-point iteration needs more steps as $\beta \to 1$ while the knot search and Newton refinement here have a cost independent of $\gamma$. The trade is accuracy: a few times $10^{-5}$ instead of machine precision. The second difference is precision. PyCharge requires float64, which consumer GPUs run at a small fraction of float32 speed and Apple GPUs do not support. Forced to float32, PyCharge's error on the pulse sweep is 0.027\%, 0.86\% and 27\% at $\gamma = 7.1$, 22.4 and 70.7, against 0.0023\%, 0.0095\% and 0.069\% for the float32 WebGL kernel with its double-float root function ($M_T = 512$). PyCharge also handles 3D and self-consistent dynamics, which this method does not; this method works from any sampled history rather than a differentiable analytic trajectory.
+
 \section{Limitations and scope}
 \begin{enumerate}
     \item \textbf{Two dimensions and prescribed motion.} Charges move in a plane and do not respond to each other's fields; there is no radiation reaction.
@@ -244,9 +267,9 @@ The tool, library, tests and the scripts that produce every number in this paper
 \section*{Acknowledgments and AI assistance}
 The physical idea --- replacing a global grid with per-source compactified histories, inspired by parameter-space (Hough) transforms --- and the direction of this work are the author's. AI systems contributed substantially, and all results were produced by code in the repository and checked by the author:
 \begin{itemize}
-    \item \textbf{Gemini (Google)}: % TODO(Tim): add the model version(s) used.
+    \item \textbf{Gemini Argon (Google)}:
     the original WebGL2 shader, the Theorem~\ref{thm:ctrl} construction, the cancellation-free kernel, the version-5 verification suite and drafts of earlier versions.
-    \item \textbf{Astra}: % TODO(Tim): say which system/product "Astra" is, and its version.
+    \item \textbf{Astra (OpenAI)}:
     adversarial review of earlier drafts and code (six rounds), including the pulse-crossing sweep and the matched-reach grid benchmark.
     \item \textbf{Claude (Anthropic), Claude Fable 5.1 and Claude Opus 5.5}: review of version 5; a multi-agent analysis that identified the limiter's conservatism and the squared-speed certificate, the cause of the single-precision floor and the double-float fix, the far-field and prior-art issues, and the preset defects; the TypeScript port, production shader, tests, PyCharge cross-check and documentation; and drafting of this version.
 \end{itemize}

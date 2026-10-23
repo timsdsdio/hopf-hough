@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hopf-hough · GPU benchmark</title>
+<style>
+  body { font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; background: #0d131f; color: #e2e8f0; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; }
+  td, th { border-bottom: 1px solid #1e293b; padding: 4px 8px; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+  button { font: 13px ui-monospace, monospace; padding: 6px 12px; border-radius: 6px; border: 0; background: #10b981; color: #052e1c; cursor: pointer; }
+  pre { background: #070a12; padding: 10px; border-radius: 8px; white-space: pre-wrap; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>GPU benchmark (same problems as the PyCharge comparison)</h1>
+<p>Charges on circular orbits (radius 0.85, c = 2.35), exact retarded field E on a 256 × 256 grid over [−3, 3]², checked against the
+double-precision reference. Compare with <code>validation/benchmarks/run_benchmark.py</code>, which runs PyCharge and a JAX port of the same method.</p>
+<button id="go">Run</button> <span id="status"></span>
+<table id="out"><tr><th>sources</th><th>β</th><th>M_T</th><th>seconds per grid</th><th>points × sources / s</th><th>rel. L2 error</th></tr></table>
+<p>Copy this into an issue or message:</p>
+<pre id="json"></pre>
+<script>
+  function load(src) { return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
+  const ready = load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js'));
+  document.getElementById('go').onclick = async () => {
+    await ready;
+    const H = window.HopfHough, status = document.getElementById('status');
+    const solver = new H.GpuSolver(document.createElement('canvas')), gl = solver.gl;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const out = { renderer: String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)), userAgent: navigator.userAgent, rows: [] };
+    const N = 256, pts = [];
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) pts.push({ x: -3 + 6 * i / (N - 1), y: -3 + 6 * j / (N - 1) });
+    const cases = [[1, 0.9], [1, 0.99], [1, 0.999], [1, 0.9999], [16, 0.9], [64, 0.9], [256, 0.9]];
+    for (const [n, beta] of cases) for (const M of [512, 2048]) {
+      status.textContent = `running ${n} source(s), β = ${beta}, M_T = ${M} …`;
+      await new Promise((r) => setTimeout(r, 0));
+      const c = 2.35, cfg = { ...H.DEFAULT_CONFIG, c, mT: M, kBin: M === 512 ? 11 : 13 };
+      const trs = Array.from({ length: n }, (_, k) => H.circularOrbit({ radius: 0.85, beta, c, phase: 2 * Math.PI * k / n }));
+      const sim = new H.Simulation(cfg, trs, 2.5);
+      solver.upload(sim.shellHistories, M);
+      solver.readFull(pts.slice(0, 256), cfg);
+      const ts = []; let f;
+      for (let r = 0; r < 5; r++) { const t0 = performance.now(); f = solver.readFull(pts, cfg); ts.push((performance.now() - t0) / 1000); }
+      ts.sort((a, b) => a - b);
+      let num = 0, den = 0;
+      const check = n <= 16 ? pts : pts.filter((_, i) => i % 16 === 0);
+      check.forEach((p) => {
+        const i = Math.round((p.y + 3) / 6 * (N - 1)) * N + Math.round((p.x + 3) / 6 * (N - 1));
+        if (Math.abs(Math.hypot(p.x, p.y) - 0.85) <= 0.05) return;
+        const e = H.exactField(trs, Math.fround(p.x), Math.fround(p.y), sim.time, { c, softEps: 0 });
+        num += (f[i].ex - e.ex) ** 2 + (f[i].ey - e.ey) ** 2; den += e.mag ** 2;
+      });
+      const row = { sources: n, beta, M, seconds: ts[2], rel_l2: Math.sqrt(num / den) };
+      out.rows.push(row);
+      document.getElementById('out').insertAdjacentHTML('beforeend', `<tr><td>${n}</td><td>${beta}</td><td>${M}</td><td>${row.seconds.toFixed(4)}</td><td>${(pts.length * n / row.seconds).toExponential(2)}</td><td>${row.rel_l2.toExponential(2)}</td></tr>`);
+    }
+    status.textContent = 'done · ' + out.renderer;
+    document.getElementById('json').textContent = JSON.stringify(out, null, 1);
+  };
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+[
+  {
+    "beta": 0.99,
+    "gamma": 7.088812050083354,
+    "dtype": "float32",
+    "pycharge_sweep_rel_l2": 0.00026934370837153267,
+    "pycharge_nonfinite": 0
+  },
+  {
+    "beta": 0.999,
+    "gamma": 22.36627204212937,
+    "dtype": "float32",
+    "pycharge_sweep_rel_l2": 0.008640667216787965,
+    "pycharge_nonfinite": 0
+  },
+  {
+    "beta": 0.9999,
+    "gamma": 70.71244595191452,
+    "dtype": "float32",
+    "pycharge_sweep_rel_l2": 0.2713864013933984,
+    "pycharge_nonfinite": 0
+  }
+]

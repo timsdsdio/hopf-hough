@@ -1,0 +1,30 @@
+[
+  {
+    "beta": 0.9,
+    "rel_l2": 6.791775373092149e-06,
+    "nonfinite": 0,
+    "points": 16384,
+    "dtype": "float64"
+  },
+  {
+    "beta": 0.99,
+    "rel_l2": 0.00017103925479396118,
+    "nonfinite": 0,
+    "points": 16384,
+    "dtype": "float64"
+  },
+  {
+    "beta": 0.999,
+    "rel_l2": 0.0010857379826377813,
+    "nonfinite": 0,
+    "points": 16384,
+    "dtype": "float64"
+  },
+  {
+    "beta": 0.9999,
+    "rel_l2": 0.00045322625583613774,
+    "nonfinite": 0,
+    "points": 16384,
+    "dtype": "float64"
+  }
+]

@@ -87,6 +87,10 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 - **Regression:** the original single-file solver from the preprint is kept in [reference/](reference/); the port reproduces its verification suite exactly (154 of 154 values), and the CI checks this on every change.
 - **Tests:** `npm test` (unit tests: trajectories, regression) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test).
 
+## Compared with PyCharge
+
+Same problems, grid and reference, same CPU ([validation/benchmarks](validation/benchmarks/README.md)). Ported to JAX, the method ties PyCharge 2.0.1 at γ ≲ 7 and for 16 sources, and is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 (PyCharge is exact when it converges). In float32, the precision GPUs run at full speed, PyCharge's pulse error is 0.86% at γ = 22 and 27% at γ = 71; the WebGL kernel's is 0.0095% and 0.069%. To measure your GPU, open `examples/benchmark.html` (hosted at https://timsdsdio.github.io/hopf-hough/examples/benchmark.html once Pages is on).
+
 ## Limitations
 
 - 2D: motion in a plane, field in that plane.
@@ -101,7 +105,7 @@ If you use hopf-hough, please cite the preprint (see [CITATION.cff](CITATION.cff
 
 ## Development and AI assistance
 
-hopf-hough was conceived and directed by Tim Huff. AI systems contributed substantially: Gemini (Google) to the original shader, the causality certificate and the first manuscript; Claude (Anthropic; Claude Fable 5.1 and Claude Opus 5.5) to the review of the preprint, the diagnosis of the accuracy floor and limiter, the TypeScript port, the production shader, the tests and this documentation. All results in this repository are produced by the code and tests in it, and were reviewed by the author.
+hopf-hough was conceived and directed by Tim Huff. AI systems contributed substantially: Gemini Argon (Google) to the original shader, the causality certificate and the first manuscript; Astra (OpenAI) to adversarial review of earlier drafts and code; Claude (Anthropic; Claude Fable 5.1 and Claude Opus 5.5) to the review of the preprint, the diagnosis of the accuracy floor and limiter, the TypeScript port, the production shader, the tests and this documentation. All results in this repository are produced by the code and tests in it, and were reviewed by the author.
 
 ## License
 
