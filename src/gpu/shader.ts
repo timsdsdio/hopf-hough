@@ -56,6 +56,8 @@ uniform int u_showWavePool;
 uniform int u_showImpostors;
 uniform int u_showMask;
 uniform float u_maskThreshold;
+uniform int u_taperOn;              // Nyquist prefilter/taper active on the CPU side
+uniform float u_omega;              // its reference angular frequency
 
 const float PI = 3.14159265359;
 
@@ -176,16 +178,17 @@ struct Seg {
   vec2 dzdR;              // dz/dR at s
   vec2 bHat; float bMag; float omb2;
   vec2 acc; float chg;
+  float duRel;            // |u2 - u1| / (mean |u| + 0.1) across the segment
 };
 
-Seg sampleSeg(int s, float mFloat) {
-  float mClamped = clamp(mFloat, 0.0, float(u_mT) - 1.0001);
-  float mFloor = floor(mClamped);
-  int m1 = int(mFloor);
+// Segment m1 at fraction t in [0, 1). Index and fraction are kept separate so that float32
+// resolution of a combined coordinate (≈ 6e-5 near m = 1000) never limits the retarded point.
+Seg sampleSegAt(int s, int m1In, float tIn) {
+  int m1 = clamp(m1In, 0, u_mT - 2);
+  float t = clamp(tIn, 0.0, 0.99999);
   int m0 = max(0, m1 - 1);
   int m2 = min(u_mT - 1, m1 + 1);
   int m3 = min(u_mT - 1, m1 + 2);
-  float t = mClamped - mFloor;
   float t2 = t * t;
   float t3 = t2 * t;
   Knot k0 = knotAt(s, m0);
@@ -240,6 +243,7 @@ Seg sampleSeg(int s, float mFloat) {
   float w3 = 0.5 * t3 - 0.5 * t2;
   g.acc = k0.acc * w0 + k1.acc * w1 + k2.acc * w2 + k3.acc * w3;
   g.chg = k1.chg;
+  g.duRel = length(k2.u - k1.u) / (0.5 * (length(k1.u) + length(k2.u)) + 0.1);
 
   if (u_velMode == 2) {
     float uTarget = mix(length(k1.u), length(k2.u), t);
@@ -259,6 +263,12 @@ Seg sampleSeg(int s, float mFloat) {
     g.omb2 = (1.0 - g.bMag) * (1.0 + g.bMag);
   }
   return g;
+}
+
+Seg sampleSeg(int s, float mFloat) {
+  float mClamped = clamp(mFloat, 0.0, float(u_mT) - 1.0001);
+  float mFloor = floor(mClamped);
+  return sampleSegAt(s, int(mFloor), mClamped - mFloor);
 }
 
 // Root function f = R - |x - z| and the separation vector d = x - z (both single precision on return).
@@ -282,8 +292,12 @@ RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, 
   return o;
 }
 
+// Lower bound for the Newton derivative 1 + n·z'(R). The certificate guarantees ≥ 1 − betaMax;
+// the legacy solver clamped at 5e-5, which stalls Newton above gamma ≈ 100.
+float kappaFloor() { return u_rootMode == 0 && u_certMode == 0 ? 5e-5 : 0.5 * (1.0 - u_betaMax); }
+
 // Retarded root for source s at observer x; returns m (shell coordinate) and sets inDomain.
-float solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain) {
+void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out float fracOut) {
   inDomain = true;
   if (u_rootMode == 0) {
     float mLow = 0.0;
@@ -301,11 +315,13 @@ float solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain) {
       Seg g = sampleSeg(s, mRet);
       RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
       vec2 nrm = r.dist > 1e-6 ? r.d / r.dist : vec2(1.0, 0.0);
-      float dfdm = max(1e-7, g.dR * max(5e-5, 1.0 + dot(nrm, g.dzdR)));
+      float dfdm = max(1e-7, g.dR * max(kappaFloor(), 1.0 + dot(nrm, g.dzdR)));
       mRet = clamp(mRet - r.f / dfdm, mLow, mHigh);
     }
     if (mRet > float(u_mT) - 1.5) inDomain = false;
-    return mRet;
+    float mF = floor(mRet);
+    segOut = int(mF); fracOut = mRet - mF;
+    return;
   }
 
   // Knot-level bisection: f is monotone in R along the stored knots (subluminal chords).
@@ -315,8 +331,8 @@ float solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain) {
   Knot kh = knotAt(s, hi);
   float fLo = rootFn(xhi, xlo, kl.phi, kl.plo, vec2(0.0), kl.r, 0.0).f;
   float fHi = rootFn(xhi, xlo, kh.phi, kh.plo, vec2(0.0), kh.r, 0.0).f;
-  if (fHi <= 0.0) { inDomain = false; return float(u_mT - 1) - 0.0001; }
-  if (fLo >= 0.0) return 0.0;
+  if (fHi <= 0.0) { inDomain = false; segOut = u_mT - 2; fracOut = 0.9999; return; }
+  if (fLo >= 0.0) { segOut = 0; fracOut = 0.0; return; }
   for (int i = 0; i < 12; i++) {
     if (hi - lo <= 1) break;
     int mid = (lo + hi) / 2;
@@ -328,17 +344,22 @@ float solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain) {
   float sLow = 0.0;
   float sHigh = 0.9999;
   float sc = clamp(fLo / (fLo - fHi), 0.0, 0.9999);
-  for (int n = 0; n < 8; n++) {
+  // f is monotone on the segment (certificate) but can be strongly curved near the pulse crest at
+  // high gamma, so iterate to convergence (u_newton = maximum steps) with a bisection fallback.
+  for (int n = 0; n < 16; n++) {
     if (n >= u_newton) break;
-    Seg g = sampleSeg(s, float(lo) + sc);
+    Seg g = sampleSegAt(s, lo, sc);
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
     if (r.f < 0.0) sLow = sc; else sHigh = sc;
     vec2 nrm = r.dist > 1e-6 ? r.d / r.dist : vec2(1.0, 0.0);
-    float dfds = max(1e-7, g.dR * max(5e-5, 1.0 + dot(nrm, g.dzdR)));
+    float dfds = max(1e-12, g.dR * max(kappaFloor(), 1.0 + dot(nrm, g.dzdR)));
     float cand = sc - r.f / dfds;
-    sc = (cand > sLow && cand < sHigh) ? cand : 0.5 * (sLow + sHigh);
+    float next = (cand > sLow && cand < sHigh) ? cand : 0.5 * (sLow + sHigh);
+    bool done = abs(next - sc) < 1e-7 || (sHigh - sLow) < 1e-7;
+    sc = next;
+    if (done) break;
   }
-  return float(lo) + sc;
+  segOut = lo; fracOut = sc;
 }
 
 void evalCancellationFreeKappaAndU(vec2 n, vec2 bHat, float bMag, float omb2, out float kappa, out vec2 u) {
@@ -348,16 +369,18 @@ void evalCancellationFreeKappaAndU(vec2 n, vec2 bHat, float bMag, float omb2, ou
   u = oneMinusBeta * n + bMag * diff;
 }
 
-struct FieldOut { vec2 e; vec2 eRad; vec2 eVel; float bz; float quality; vec2 emit0; };
+struct FieldOut { vec2 e; vec2 eRad; vec2 eVel; float bz; float quality; vec2 emit0; vec4 dbg; };
 
 FieldOut evalField(vec2 xhi, vec2 xlo) {
   FieldOut o;
-  o.e = vec2(0.0); o.eRad = vec2(0.0); o.eVel = vec2(0.0); o.bz = 0.0; o.quality = 0.0; o.emit0 = vec2(0.0);
+  o.e = vec2(0.0); o.eRad = vec2(0.0); o.eVel = vec2(0.0); o.bz = 0.0; o.quality = 0.0; o.emit0 = vec2(0.0); o.dbg = vec4(0.0);
   for (int s = 0; s < 256; s++) {
     if (s >= u_activeCount) break;
     bool inDomain;
-    float mRet = solveRoot(s, xhi, xlo, inDomain);
-    Seg g = sampleSeg(s, mRet);
+    int seg; float frac;
+    solveRoot(s, xhi, xlo, inDomain, seg, frac);
+    Seg g = sampleSegAt(s, seg, frac);
+    float mRet = float(seg) + frac;
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
     vec2 d = r.d;
     float r2 = dot(d, d);
@@ -374,14 +397,24 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
     vec2 eS = eVel + eRad;
     o.e += eS; o.eRad += eRad; o.eVel += eVel;
     o.bz += n.x * eS.y - n.y * eS.x;
-    // Resolution indicator: shell spacing times gamma over the local radius of curvature.
+    // Resolution indicator (heuristic, calibrated against the reference in results/):
+    //  - bending: shell spacing x gamma over the local radius of curvature;
+    //  - speeding up/slowing down: relative change of proper velocity across the segment.
     float b2 = max(1e-12, g.bMag * g.bMag);
     float aPerp = abs(g.bHat.x * g.acc.y - g.bHat.y * g.acc.x);
     float gam = inversesqrt(max(1e-12, g.omb2));
-    float q = g.dR * gam * aPerp / b2;
+    float qBend = g.dR * gam * aPerp / b2;
+    float qSpeed = 6.0 * g.duRel;
+    float q = max(qBend, qSpeed);
+    if (mRet < 1.0) q = max(q, 1.6);   // inside the first shell: too close to the charge to trust
+    // Shells the Nyquist taper has damped no longer carry the true acceleration: flag them.
+    if (u_taperOn == 1 && u_scaleL > 0.0) {
+      float lambda = 2.0 * PI * u_c / max(0.5, u_omega);
+      if (g.dR / (0.5 * lambda) > 0.25) q = max(q, 2.0);
+    }
     if (!inDomain) o.quality = -1.0;
     else if (o.quality >= 0.0) o.quality = max(o.quality, q);
-    if (s == 0) o.emit0 = (g.p1hi + g.p1lo) + g.dPosSub;
+    if (s == 0) { o.emit0 = (g.p1hi + g.p1lo) + g.dPosSub; o.dbg = vec4(g.r1, g.dRSub, kappa, g.bMag); }
   }
   return o;
 }
@@ -454,7 +487,8 @@ void main() {
   FieldOut F = evalField(xhi, xlo);
 
   if (u_readbackMode == 1) {
-    if (u_readbackLayout == 1) outColor = vec4(F.e, F.bz, F.quality);
+    if (u_readbackLayout == 2) outColor = F.dbg;
+    else if (u_readbackLayout == 1) outColor = vec4(F.e, F.bz, F.quality);
     else outColor = vec4(F.e, F.emit0);
     return;
   }

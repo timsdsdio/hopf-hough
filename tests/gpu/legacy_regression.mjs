@@ -1,7 +1,7 @@
 // The ported GPU path (legacy shader) must reproduce the original suite exactly under SwiftShader.
 import { launch } from './browser.mjs';
 import { readFileSync } from 'node:fs';
-const bundle = process.argv[2];
+const bundle = process.argv[2] || new URL('../../dist/hopf-hough.iife.js', import.meta.url).pathname;
 const base = JSON.parse(readFileSync(new URL('../../reference/baseline_suite.json', import.meta.url)));
 const browser = await launch();
 const page = await browser.newPage();
@@ -9,8 +9,8 @@ page.on('pageerror', (e) => console.error('pageerror', e.message));
 await page.setContent('<html><body><canvas id="c" width="16" height="16"></canvas></body></html>');
 await page.addScriptTag({ content: readFileSync(bundle, 'utf8') });
 const res = await page.evaluate(() => {
-  const solver = new HH.GpuSolver(document.getElementById('c'), HH.LEGACY_SHADERS);
-  return HH.runSuite(HH.gpuBackend(solver), { base: HH.LEGACY_SETTINGS });
+  const solver = new HopfHough.GpuSolver(document.getElementById('c'), HopfHough.LEGACY_SHADERS);
+  return HopfHough.runSuite(HopfHough.gpuBackend(solver), { base: HopfHough.LEGACY_SETTINGS });
 });
 const KEYS = ['bulkL2', 'shockL2', 'cpuF32L2', 'cpuF64L2', 'coordRoundL2', 'gpuCpuRelL2', 'posErr'];
 let n = 0, bad = 0;

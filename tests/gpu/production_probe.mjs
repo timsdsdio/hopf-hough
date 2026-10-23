@@ -9,12 +9,12 @@ page.on('console', (m) => console.log('[page]', m.text()));
 await page.setContent('<html><body><canvas id="c" width="16" height="16"></canvas></body></html>');
 await page.addScriptTag({ content: readFileSync(bundle, 'utf8') });
 const res = await page.evaluate(() => {
-  const solver = new HH.GpuSolver(document.getElementById('c'), HH.PRODUCTION_SHADERS);
-  const B = HH.gpuBackend(solver);
+  const solver = new HopfHough.GpuSolver(document.getElementById('c'), HopfHough.PRODUCTION_SHADERS);
+  const B = HopfHough.gpuBackend(solver);
   const variants = {
-    'legacy switches (eps .06)': { ...HH.LEGACY_SETTINGS },
-    'df64 only': { ...HH.LEGACY_SETTINGS, precision: 1 },
-    'df64 + sharp cert': { ...HH.LEGACY_SETTINGS, precision: 1, certMode: 1 },
+    'legacy switches (eps .06)': { ...HopfHough.LEGACY_SETTINGS },
+    'df64 only': { ...HopfHough.LEGACY_SETTINGS, precision: 1 },
+    'df64 + sharp cert': { ...HopfHough.LEGACY_SETTINGS, precision: 1, certMode: 1 },
     'production (eps .06)': { softEps: 0.06 },
     'production (eps 0)': { softEps: 0 },
   };
@@ -22,7 +22,7 @@ const res = await page.evaluate(() => {
   for (const [name, base] of Object.entries(variants)) {
     const row = {};
     for (const [b, M, kb, vm] of [[0.999, 512, 11, 2], [0.9999, 128, 9, 1], [0.9999, 512, 11, 2], [0.9999, 2048, 13, 2]]) {
-      const r = HH.runCase({ beta: b, motion: 'synchrotron', mT: M, kBin: kb, velMode: vm, nShock: 256 }, B, { base });
+      const r = HopfHough.runCase({ beta: b, motion: 'synchrotron', mT: M, kBin: kb, velMode: vm, nShock: 256 }, B, { base });
       row[`γ=${(1/Math.sqrt(1-b*b)).toFixed(1)} M=${M}`] = [+r.shockL2.toPrecision(3), +r.bulkL2.toPrecision(3)];
     }
     out[name] = row;

@@ -53,7 +53,7 @@ export interface SolverConfig {
   gridRMax: number;
   /** Apply the Nyquist prefilter/taper on coarse compactified shells. */
   prefilter: boolean;
-  /** Newton steps after the bracketing search. */
+  /** Newton steps after the bracketing search (legacy search: fixed count; knot search: maximum, stops on convergence). */
   newton: number;
   /** Causality limiter: 0 = Theorem 1 (legacy), 1 = |z'|² Bernstein-coefficient certificate, 2 = none. */
   certMode: 0 | 1 | 2;
@@ -78,7 +78,7 @@ export const DEFAULT_CONFIG: SolverConfig = {
   gridMode: 'compactified',
   gridRMax: 220.0,
   prefilter: true,
-  newton: 3,
+  newton: 12,
   certMode: 1,
   rootMode: 1,
   precision: 1,

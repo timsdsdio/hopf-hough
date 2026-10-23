@@ -141,6 +141,25 @@ export class ShellHistory {
 
     // Chord clamp: pull any knot whose chord would be superluminal back inside the light cone
     // (only fires for unphysical input such as teleporting trajectories).
+    if (cfg.precision === 1) {
+      // Double precision on the full hi+lo positions: with float32 differences alone, close knots
+      // (M = 2048) at γ ≳ 100 show phantom superluminal chords and good knots get moved.
+      const maxSub = cfg.betaMax;
+      for (let m = 0; m < M - 1; m++) {
+        const dR = Math.max(1e-12, this.emitR[m + 1] - this.emitR[m]);
+        const x0 = this.emitX[m] + this.emitXlo[m], y0 = this.emitY[m] + this.emitYlo[m];
+        const dx = this.emitX[m + 1] + this.emitXlo[m + 1] - x0, dy = this.emitY[m + 1] + this.emitYlo[m + 1] - y0;
+        const chordSpeed = Math.hypot(dx, dy) / dR;
+        if (chordSpeed > maxSub) {
+          const shrink = maxSub / chordSpeed;
+          const nx = x0 + dx * shrink, ny = y0 + dy * shrink;
+          this.emitX[m + 1] = f32(nx); this.emitXlo[m + 1] = f32(nx - this.emitX[m + 1]);
+          this.emitY[m + 1] = f32(ny); this.emitYlo[m + 1] = f32(ny - this.emitY[m + 1]);
+        }
+      }
+      return;
+    }
+    // Legacy float32 clamp (reproduces the original solver).
     const maxSub = f32(cfg.betaMax);
     for (let m = 0; m < M - 1; m++) {
       const r1 = this.emitR[m];

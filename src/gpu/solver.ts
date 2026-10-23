@@ -187,11 +187,13 @@ export class GpuSolver {
       this.set('u_precision', cfg.precision);
       this.setFloat('u_betaMax', cfg.betaMax);
       this.setFloat('u_one', 1.0);
+      this.set('u_taperOn', cfg.prefilter && cfg.gridMode === 'compactified');
+      this.setFloat('u_omega', cfg.omega);
     }
   }
 
   /** Raw readback: 4 floats per point in the requested layout. */
-  private readRaw(points: readonly { x: number; y: number; x64?: number; y64?: number }[], cfg: SolverConfig, layout: 0 | 1): Float32Array {
+  readRaw(points: readonly { x: number; y: number; x64?: number; y64?: number }[], cfg: SolverConfig, layout: 0 | 1 | 2): Float32Array {
     const gl = this.gl;
     gl.useProgram(this.program);
     this.setSolverUniforms(cfg);
