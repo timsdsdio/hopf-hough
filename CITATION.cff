@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the preprint below."
+title: "hopf-hough: exact retarded Liénard–Wiechert fields on the GPU"
+type: software
+authors:
+  - family-names: Huff
+    given-names: Tim
+    affiliation: Independent researcher
+license: MIT
+repository-code: "https://github.com/timsdsdio/hopf-hough"
+url: "https://timsdsdio.github.io/hopf-hough/"
+version: 0.1.0
+keywords:
+  - Liénard–Wiechert fields
+  - retarded potentials
+  - electrodynamics
+  - WebGL2
+  - GPU
+  - synchrotron radiation
+preferred-citation:
+  type: article
+  title: "A Causality-Preserving, Stereographically Compactified Worldline Representation for Retarded Liénard–Wiechert Electrodynamics"
+  authors:
+    - family-names: Huff
+      given-names: Tim
+  year: 2026
+  publisher:
+    name: Zenodo
+  doi: "10.5281/zenodo.23581323"
