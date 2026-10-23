@@ -9,7 +9,12 @@ authors:
 license: MIT
 repository-code: "https://github.com/timsdsdio/hopf-hough"
 url: "https://timsdsdio.github.io/hopf-hough/"
-version: 0.1.0
+version: 6.0.0
+date-released: "2026-10-23"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23601496"
+    description: "Software release v6.0.0 (commit d87f823), as described by preprint version 6"
 keywords:
   - Liénard–Wiechert fields
   - retarded potentials
