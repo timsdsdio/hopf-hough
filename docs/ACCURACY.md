@@ -233,10 +233,14 @@ On smooth resampled histories the unlimited spline only exceeds c on the outermo
 
 ## 5. Relative cost
 
-640 × 400 pixels, 16 sources, M = 512, software rendering, three repetitions of 3 frames each. Software rendering says little about GPU arithmetic cost; an operation count estimates about 2.7× more float32 arithmetic per root-function evaluation for the double-float version (validation/analysis/precision/opcount.out). Measure on a real GPU with the in-app **Benchmark** button.
+640 × 400 pixels, 16 sources, M = 512, software rendering, three repetitions of 3 frames each. Software rendering says little about GPU arithmetic cost (for timings on an M1 Max GPU see validation/benchmarks/README.md); an operation count estimates about 2.7× more float32 arithmetic per root-function evaluation for the double-float version (validation/analysis/precision/opcount.out). Measure on a real GPU with the in-app **Benchmark** button.
 
 | variant | ms per frame (3 runs) |
 |---|---|
 | production | 6510, 4826, 3860 |
 | float32 root (otherwise production) | 5585, 3467, 3510 |
 | version-5 algorithm (switches) | 3592, 3547, 3539 |
+
+## On real hardware
+
+The in-app suite on an Apple M1 Max (Chrome 154, ANGLE → Metal) reproduces the pulse-sweep column above to within run-to-run scatter: for example 0.0089% (γ = 22.4) and 0.059% (γ = 70.7) at M = 512; full table in [results/suite_m1max.tsv](../results/suite_m1max.tsv). Before the shader guarded every double-float operation, the same GPU gave 0.29% and 11% ([results/suite_m1max_before_fix.json](../results/suite_m1max_before_fix.json)), i.e. float32 accuracy, because the Metal compiler reassociated the error-free transforms.

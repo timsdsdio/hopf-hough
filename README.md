@@ -31,7 +31,7 @@ Details, derivations and the original benchmarks are in the preprint; [docs/ACCU
 
 ## Accuracy (summary)
 
-Relative L2 error of GPU readback against the exact field (no softening), on 256 observers crossing the synchrotron pulse at retarded radius 1.15. Measured with WebGL2 in software rendering (SwiftShader); run the in-app suite to measure on your own GPU.
+Relative L2 error of GPU readback against the exact field (no softening), on 256 observers crossing the synchrotron pulse at retarded radius 1.15. Measured with WebGL2 in software rendering (SwiftShader); an Apple M1 Max (Metal) gives the same figures to within run-to-run scatter, e.g. 0.0089% and 0.059% at γ = 22 and 71 with M = 512 ([results/suite_m1max.tsv](results/suite_m1max.tsv)). Run the in-app suite to measure on your own GPU.
 
 <!-- ACCURACY_TABLE -->
 | β | γ | this version, M=128 | this version, M=512 | this version, M=2048 | original algorithm, M=512 |
@@ -89,7 +89,7 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 
 ## Compared with PyCharge
 
-Same problems, grid and reference, same CPU ([validation/benchmarks](validation/benchmarks/README.md)). Ported to JAX, the method ties PyCharge 2.0.1 at γ ≲ 7 and for 16 sources, and is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 (PyCharge is exact when it converges). In float32, the precision GPUs run at full speed, PyCharge's pulse error is 0.86% at γ = 22 and 27% at γ = 71; the WebGL kernel's is 0.0095% and 0.069%. To measure your GPU, open `examples/benchmark.html` (hosted at https://timsdsdio.github.io/hopf-hough/examples/benchmark.html once Pages is on).
+Same problems, grid and reference, same CPU ([validation/benchmarks](validation/benchmarks/README.md)). Ported to JAX, the method ties PyCharge 2.0.1 at γ ≲ 7 and for 16 sources, and is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 (PyCharge is exact when it converges). In float32, the precision GPUs run at full speed, PyCharge's pulse error is 0.86% at γ = 22 and 27% at γ = 71; the WebGL kernel's is 0.0095% and 0.069%. On an M1 Max GPU the same problems take 5–7 ms for one source and 20 ms for 16 sources at the same accuracy (different machine from the CPU runs, so the ratio is indicative). To measure your GPU, open [examples/benchmark.html](https://timsdsdio.github.io/hopf-hough/examples/benchmark.html).
 
 ## Limitations
 
@@ -97,7 +97,7 @@ Same problems, grid and reference, same CPU ([validation/benchmarks](validation/
 - Prescribed motion: charges do not respond to each other's fields, and there is no radiation reaction.
 - Accuracy falls with distance once the shell spacing can no longer resolve the motion; the validity mask marks this. The stored history is the ring buffer, about 260 length units deep in the default configuration; shells extend to R ≈ 4LM/π (220 for M = 128, L = 1.35) and anything beyond either limit is marked as outside the history.
 - Very high γ: at γ ≈ 224 the pulse-sweep error is 1.3% (M = 512) and 0.45% (M = 2048). Above γ ≈ 100, float32 observer coordinates cannot resolve the pulse; pass double-precision coordinates (`x64`, `y64`) to `readFull` (the rendered view uses float32 pixel coordinates).
-- Accuracy has been measured in software rendering. GPU compilers that reorder floating-point operations aggressively could weaken the double-float steps; run the in-app suite on your hardware.
+- Accuracy has been measured in software rendering and on an Apple M1 Max. Apple's shader compiler reassociates floating-point sums, which undid an earlier version of the double-float code (it fell back to float32 accuracy). The shader now routes every rounding step through a bit-level barrier; `examples/precision-probe.html` checks each double-float building block on your GPU, and the in-app suite checks the whole solver.
 
 ## Citing
 
