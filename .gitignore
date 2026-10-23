@@ -6,3 +6,4 @@ validation/pycharge/__pycache__/
 paper/*.aux
 paper/*.log
 paper/*.out
+__pycache__/
