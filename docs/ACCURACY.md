@@ -24,10 +24,10 @@ Synchrotron orbit (radius 0.85), 256 observers crossing the pulse at retarded ra
 | 0.99 | 7.1 | 2048 | 4.3e-4% | 6.0e-4% | 0.015% | 8.1e-5% | 0.0034% |
 | 0.999 | 22.4 | 128 | 0.13% | 0.13% | 0.26% | 0.013% | 0.11% |
 | 0.999 | 22.4 | 512 | 0.0095% | 0.0096% | 0.22% | 0.0016% | 0.11% |
-| 0.999 | 22.4 | 2048 | 0.0067% | 0.0055% | 0.24% | 3.3e-4% | 0.11% |
+| 0.999 | 22.4 | 2048 | 0.0067% | 0.0055% | 0.29% | 3.3e-4% | 0.11% |
 | 0.9999 | 70.7 | 128 | 0.37% | 0.43% | 48% | 0.045% | 3.2% |
-| 0.9999 | 70.7 | 512 | 0.069% | 0.069% | 7.2% | 0.0027% | 3.2% |
-| 0.9999 | 70.7 | 2048 | 0.051% | 0.043% | 5.6% | 1.7e-4% | 3.2% |
+| 0.9999 | 70.7 | 512 | 0.069% | 0.069% | 7.6% | 0.0027% | 3.2% |
+| 0.9999 | 70.7 | 2048 | 0.051% | 0.043% | 7.8% | 1.7e-4% | 3.2% |
 | 0.99999 | 223.6 | 128 | 5.0% | 7.0% | — | 0.041% | >100% |
 | 0.99999 | 223.6 | 512 | 0.98% | 1.3% | — | 9.6e-4% | >100% |
 | 0.99999 | 223.6 | 2048 | 0.50% | 0.45% | — | 1.2e-4% | >100% |
@@ -45,139 +45,162 @@ Synchrotron orbit (radius 0.85), 256 observers crossing the pulse at retarded ra
 
 ## 3. Far field and the validity flag
 
-Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit centre. *flagged* = observers the validity indicator marks (outside the history, or under-resolved); *unflagged error* = L2 error over the observers it does not mark. The Nyquist taper deliberately damps the radiation term on coarse shells; with the taper on, those shells are flagged.
+Circular orbit (radius 0.85), 64 observers on rings of radius R around the orbit centre. *flagged* = observers the validity indicator marks (outside the stored history, or under-resolved); *unflagged L2* and *unflagged max* = L2 and worst single-observer error over the observers it does not mark. The Nyquist taper deliberately damps the radiation term on coarse shells; with the taper on, those shells are flagged. The stored history is the ring buffer, c·dt·ringSize ≈ 260 length units deep; shells placed beyond it are flagged as outside the history.
 
-**β = 0.5, M = 128, taper off** (history reach 220)
+**β = 0.5, M = 128, taper off** (outermost shell 220, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 3.9e-4% | 0/64 | 3.9e-4% |
-| 3 | 0.017% | 0/64 | 0.017% |
-| 10 | 0.82% | 64/64 | — |
-| 30 | 71% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 3.9e-4% | 0/64 | 3.9e-4% | 0.0088% |
+| 3 | 0.017% | 0/64 | 0.017% | 0.098% |
+| 10 | 0.82% | 64/64 | — | — |
+| 30 | 71% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.5, M = 128, taper on** (history reach 220)
+**β = 0.5, M = 128, taper on** (outermost shell 220, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 3.9e-4% | 0/64 | 3.9e-4% |
-| 3 | 0.017% | 0/64 | 0.017% |
-| 10 | 0.93% | 64/64 | — |
-| 30 | >100% | 64/64 | — |
-| 100 | 100% | 64/64 | — |
-| 200 | 100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 3.9e-4% | 0/64 | 3.9e-4% | 0.0088% |
+| 3 | 0.017% | 0/64 | 0.017% | 0.098% |
+| 10 | 0.93% | 64/64 | — | — |
+| 30 | >100% | 64/64 | — | — |
+| 100 | 100% | 64/64 | — | — |
+| 200 | 100% | 64/64 | — | — |
 
-**β = 0.5, M = 512, taper off** (history reach 880)
+**β = 0.5, M = 512, taper off** (outermost shell 880, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 2.8e-5% | 0/64 | 2.8e-5% |
-| 3 | 0.0014% | 0/64 | 0.0014% |
-| 10 | 0.055% | 0/64 | 0.055% |
-| 30 | 2.9% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 2.8e-5% | 0/64 | 2.8e-5% | 5.1e-4% |
+| 3 | 0.0014% | 0/64 | 0.0014% | 0.0059% |
+| 10 | 0.055% | 0/64 | 0.055% | 0.40% |
+| 30 | 2.9% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.5, M = 512, taper on** (history reach 880)
+**β = 0.5, M = 512, taper on** (outermost shell 880, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 2.8e-5% | 0/64 | 2.8e-5% |
-| 3 | 0.0014% | 0/64 | 0.0014% |
-| 10 | 0.055% | 0/64 | 0.055% |
-| 30 | 9.3% | 64/64 | — |
-| 100 | 99% | 64/64 | — |
-| 200 | 100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 2.8e-5% | 0/64 | 2.8e-5% | 5.1e-4% |
+| 3 | 0.0014% | 0/64 | 0.0014% | 0.0059% |
+| 10 | 0.055% | 0/64 | 0.055% | 0.40% |
+| 30 | 9.3% | 64/64 | — | — |
+| 100 | 99% | 64/64 | — | — |
+| 200 | 100% | 64/64 | — | — |
 
-**β = 0.5, M = 2048, taper off** (history reach 3520)
+**β = 0.5, M = 2048, taper off** (outermost shell 3520, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 2.4e-5% | 0/64 | 2.4e-5% |
-| 3 | 8.6e-5% | 0/64 | 8.6e-5% |
-| 10 | 0.0030% | 0/64 | 0.0030% |
-| 30 | 0.11% | 43/64 | 0.21% |
-| 100 | 38% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 2.4e-5% | 0/64 | 2.4e-5% | 8.5e-5% |
+| 3 | 8.6e-5% | 0/64 | 8.6e-5% | 4.0e-4% |
+| 10 | 0.0030% | 0/64 | 0.0030% | 0.016% |
+| 30 | 0.11% | 43/64 | 0.21% | 1.6% |
+| 100 | 38% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.5, M = 2048, taper on** (history reach 3520)
+**β = 0.5, M = 2048, taper on** (outermost shell 3520, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 2.4e-5% | 0/64 | 2.4e-5% |
-| 3 | 8.6e-5% | 0/64 | 8.6e-5% |
-| 10 | 0.0030% | 0/64 | 0.0030% |
-| 30 | 0.11% | 43/64 | 0.21% |
-| 100 | 95% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 2.4e-5% | 0/64 | 2.4e-5% | 8.5e-5% |
+| 3 | 8.6e-5% | 0/64 | 8.6e-5% | 4.0e-4% |
+| 10 | 0.0030% | 0/64 | 0.0030% | 0.016% |
+| 30 | 0.11% | 43/64 | 0.21% | 1.6% |
+| 100 | 95% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 128, taper off** (history reach 220)
+**β = 0.9, M = 128, taper off** (outermost shell 220, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 0.0064% | 0/64 | 0.0064% |
-| 3 | 0.61% | 0/64 | 0.61% |
-| 10 | 2.9% | 64/64 | — |
-| 30 | >100% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 0.0064% | 0/64 | 0.0064% | 0.036% |
+| 3 | 0.61% | 0/64 | 0.61% | 0.81% |
+| 10 | 2.9% | 64/64 | — | — |
+| 30 | >100% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 128, taper on** (history reach 220)
+**β = 0.9, M = 128, taper on** (outermost shell 220, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 0.0064% | 0/64 | 0.0064% |
-| 3 | 0.61% | 0/64 | 0.61% |
-| 10 | 2.7% | 64/64 | — |
-| 30 | >100% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 0.0064% | 0/64 | 0.0064% | 0.036% |
+| 3 | 0.61% | 0/64 | 0.61% | 0.81% |
+| 10 | 2.7% | 64/64 | — | — |
+| 30 | >100% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 512, taper off** (history reach 880)
+**β = 0.9, M = 512, taper off** (outermost shell 880, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 0.0015% | 0/64 | 0.0015% |
-| 3 | 0.011% | 0/64 | 0.011% |
-| 10 | 0.20% | 26/64 | 0.15% |
-| 30 | 31% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 0.0015% | 0/64 | 0.0015% | 0.0022% |
+| 3 | 0.011% | 0/64 | 0.011% | 0.018% |
+| 10 | 0.20% | 26/64 | 0.15% | 0.34% |
+| 30 | 31% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 512, taper on** (history reach 880)
+**β = 0.9, M = 512, taper on** (outermost shell 880, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 0.0015% | 0/64 | 0.0015% |
-| 3 | 0.011% | 0/64 | 0.011% |
-| 10 | 0.20% | 26/64 | 0.15% |
-| 30 | 36% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 0.0015% | 0/64 | 0.0015% | 0.0022% |
+| 3 | 0.011% | 0/64 | 0.011% | 0.018% |
+| 10 | 0.20% | 26/64 | 0.15% | 0.34% |
+| 30 | 36% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 2048, taper off** (history reach 3520)
+**β = 0.9, M = 2048, taper off** (outermost shell 3520, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 9.2e-5% | 0/64 | 9.2e-5% |
-| 3 | 0.0019% | 0/64 | 0.0019% |
-| 10 | 0.010% | 0/64 | 0.010% |
-| 30 | 0.18% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 9.2e-5% | 0/64 | 9.2e-5% | 1.6e-4% |
+| 3 | 0.0019% | 0/64 | 0.0019% | 0.0030% |
+| 10 | 0.010% | 0/64 | 0.010% | 0.083% |
+| 30 | 0.18% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
 
-**β = 0.9, M = 2048, taper on** (history reach 3520)
+**β = 0.9, M = 2048, taper on** (outermost shell 3520, history depth 260)
 
-| R | error | flagged | unflagged error |
-|---|---|---|---|
-| 1.15 | 9.2e-5% | 0/64 | 9.2e-5% |
-| 3 | 0.0019% | 0/64 | 0.0019% |
-| 10 | 0.010% | 0/64 | 0.010% |
-| 30 | 0.18% | 64/64 | — |
-| 100 | >100% | 64/64 | — |
-| 200 | >100% | 64/64 | — |
+| R | error | flagged | unflagged L2 | unflagged max |
+|---|---|---|---|---|
+| 1.15 | 9.2e-5% | 0/64 | 9.2e-5% | 1.6e-4% |
+| 3 | 0.0019% | 0/64 | 0.0019% | 0.0030% |
+| 10 | 0.010% | 0/64 | 0.010% | 0.083% |
+| 30 | 0.18% | 64/64 | — | — |
+| 100 | >100% | 64/64 | — | — |
+| 200 | >100% | 64/64 | — | — |
+
+**Unaccelerated motion far from the charge** (β = 0.5, observer at distance d perpendicular to the motion). The history is 260 length units deep; beyond it the indicator reports −1.
+
+| M | d | retarded R | error | indicator |
+|---|---|---|---|---|
+| 512 | 50 | 58 | 2.8e-5% | ok |
+| 512 | 100 | 115 | 2.8e-5% | ok |
+| 512 | 150 | 173 | 2.7e-5% | ok |
+| 512 | 200 | 231 | 3.3% | outside history |
+| 512 | 230 | 266 | 5.7% | outside history |
+| 512 | 300 | 346 | 6.9% | outside history |
+| 512 | 500 | 577 | 69% | outside history |
+| 512 | 800 | 924 | 37% | outside history |
+| 2048 | 50 | 58 | 2.8e-5% | ok |
+| 2048 | 100 | 115 | 2.8e-5% | ok |
+| 2048 | 150 | 173 | 2.0e-5% | ok |
+| 2048 | 200 | 231 | 2.8e-5% | ok |
+| 2048 | 230 | 266 | 2.1% | outside history |
+| 2048 | 300 | 346 | 10% | outside history |
+| 2048 | 500 | 577 | 25% | outside history |
+| 2048 | 800 | 924 | 62% | outside history |
+
+Across all far-field and straight-line cases, the worst error at any single observer the indicator does not mark is 1.6%.
 
 ## 4. When does the causality limiter matter?
 
@@ -198,15 +221,22 @@ Hyperbolic motion (constant proper acceleration from rest), observers just ahead
 | 0.25 | 100 | 512 | 0 | 3.3e-5% | 3.5e-4% | 0/128 | 0.9956 (0.0) | 10.7 |
 | 0.25 | 100 | 512 | 1 | 3.3e-5% | 3.5e-4% | 0/128 | 0.9956 (0.0) | 10.7 |
 
-On smooth resampled histories the unlimited spline only exceeds c on the outermost, very coarse shells. A targeted run that placed 256 on-axis observers so their retarded points fall inside that segment (proper acceleration 0.15 and 0.25, M = 128, segment R ∈ [73, 220]) gave 21–73% error with the certificate, 49–96% with Theorem 1 and 68–91% with no limiter, and the validity flag marked all 256 observers in every case. So the certificate's role is a guarantee (one root per observer, so the root search cannot take a wrong branch) at no accuracy cost; it does not make an under-resolved history accurate.
+Targeted run: 256 on-axis observers placed so that their retarded points fall inside the segment where the unlimited cubic is fastest.
+
+| proper accel. | M | segment R | peak \|z′\| | no limiter | Theorem 1 | |z′|² certificate | flagged |
+|---|---|---|---|---|---|---|---|
+| 0.25 | 128 | 73.3–220.0 | 1.0574 | 93% | 96% | 73% | 256/256 |
+| 0.15 | 128 | 73.3–220.0 | 1.0112 | 68% | 49% | 22% | 256/256 |
+| 0.25 | 64 | 0.0–0.0 | 0.9956 | 5.2% | 5.2% | 5.2% | 246/256 |
+
+On smooth resampled histories the unlimited spline only exceeds c on the outermost, very coarse shells, where every variant is inaccurate and the validity indicator marks the result. On resolved segments the certificate does not change the answer; on under-resolved segments a limiter can raise or lower the error (in the v5 Float64 analysis, validation/analysis/limiter/run_modes.out, the |z′|² certificate gave 296% vs 70% without a limiter at γ = 22.4, M = 128, R = 8). Its role is a guarantee: one root per observer, so the search cannot take a wrong branch.
 
 ## 5. Relative cost
 
-640 × 400 pixels, 16 sources, M = 512, software rendering. Software timings are noisy (±10% between runs); the variants cost about the same. Measure on a real GPU with the in-app **Benchmark** button.
+640 × 400 pixels, 16 sources, M = 512, software rendering, three repetitions of 3 frames each. Software rendering says little about GPU arithmetic cost; an operation count estimates about 2.7× more float32 arithmetic per root-function evaluation for the double-float version (validation/analysis/precision/opcount.out). Measure on a real GPU with the in-app **Benchmark** button.
 
-| variant | ms per frame |
+| variant | ms per frame (3 runs) |
 |---|---|
-| production | 3775 |
-| float32 root (otherwise production) | 3889 |
-| legacy algorithm | 3556 |
-| double-float root, legacy search | 3522 |
+| production | 6510, 4826, 3860 |
+| float32 root (otherwise production) | 5585, 3467, 3510 |
+| version-5 algorithm (switches) | 3592, 3547, 3539 |

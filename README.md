@@ -40,13 +40,13 @@ Relative L2 error of GPU readback against the exact field (no softening), on 256
 | 0.95 | 3.2 | 0.017% | 0.0010% | 1.5e-4% | 0.0019% |
 | 0.99 | 7.1 | 0.038% | 0.0023% | 4.3e-4% | 0.0097% |
 | 0.999 | 22.4 | 0.13% | 0.0095% | 0.0067% | 0.22% |
-| 0.9999 | 70.7 | 0.37% | 0.069% | 0.051% | 7.2% |
+| 0.9999 | 70.7 | 0.37% | 0.069% | 0.051% | 7.6% |
 | 0.99999 | 223.6 | 7.0%† | 1.3%† | 0.45%† | — |
 
 † γ ≈ 224 uses double-precision observer coordinates (float32 coordinates cannot resolve the pulse there).
 <!-- /ACCURACY_TABLE -->
 
-The app hatches pixels where the answer should not be trusted: outside the stored history (red), or where the history is too coarse for the local motion (amber). In the far-field tests, every observer the flag does not mark is within 0.61% of the exact field. See [docs/ACCURACY.md](docs/ACCURACY.md) for the far-field envelope and how well that flag predicts the error.
+The app hatches pixels where the answer should not be trusted: outside the stored history (red), or where the history is too coarse for the local motion (amber). In the far-field tests, no observer the flag leaves unmarked is more than 1.6% from the exact field. See [docs/ACCURACY.md](docs/ACCURACY.md) for the far-field envelope and how well that flag predicts the error.
 
 ## Using the app
 
@@ -83,7 +83,7 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 
 ## Verification
 
-- **Independent code:** with softening off, the double-precision reference agrees with [PyCharge](https://github.com/MatthewFilipovich/pycharge) 2.0.1 to ~1e-11 for circular, oscillating and straight-line motion ([validation/pycharge](validation/pycharge/REPORT.md)).
+- **Independent code:** with softening off, a Python port of the double-precision reference agrees with [PyCharge](https://github.com/MatthewFilipovich/pycharge) 2.0.1 to ~1e-11 for circular, oscillating and straight-line motion up to γ = 7.1 ([validation/pycharge](validation/pycharge/REPORT.md)).
 - **Regression:** the original single-file solver from the preprint is kept in [reference/](reference/); the port reproduces its verification suite exactly (154 of 154 values), and the CI checks this on every change.
 - **Tests:** `npm test` (unit tests: trajectories, regression) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test).
 
@@ -91,8 +91,8 @@ Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, 
 
 - 2D: motion in a plane, field in that plane.
 - Prescribed motion: charges do not respond to each other's fields, and there is no radiation reaction.
-- Accuracy falls with distance once the shell spacing can no longer resolve the motion; the validity mask marks this. The history reaches R = L tan(π/2 − π/(4M)) ≈ 4LM/π (220 for M = 128, L = 1.35) and the ring buffer about 260 length units.
-- Very high γ: at γ ≈ 224 the pulse-sweep error is 1.3% (M = 512) and 0.45% (M = 2048). Above γ ≈ 100, float32 observer coordinates cannot resolve the pulse; pass double-precision coordinates (`x64`, `y64`) to `readFull`.
+- Accuracy falls with distance once the shell spacing can no longer resolve the motion; the validity mask marks this. The stored history is the ring buffer, about 260 length units deep in the default configuration; shells extend to R ≈ 4LM/π (220 for M = 128, L = 1.35) and anything beyond either limit is marked as outside the history.
+- Very high γ: at γ ≈ 224 the pulse-sweep error is 1.3% (M = 512) and 0.45% (M = 2048). Above γ ≈ 100, float32 observer coordinates cannot resolve the pulse; pass double-precision coordinates (`x64`, `y64`) to `readFull` (the rendered view uses float32 pixel coordinates).
 - Accuracy has been measured in software rendering. GPU compilers that reorder floating-point operations aggressively could weaken the double-float steps; run the in-app suite on your hardware.
 
 ## Citing
