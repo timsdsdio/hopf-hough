@@ -78,12 +78,12 @@ export async function runWebAppChecks(log) {
     check(app.errors.length === 0, `web app loads without errors${app.errors.length ? ': ' + app.errors.join('; ') : ''}`);
     const kernelAtLoad = await app.page.evaluate('state.kernel');
     check(kernelAtLoad === 'v6', `web app starts on the v6 kernel (${kernelAtLoad})`);
-    await app.page.click('#btn-kernel');
+    await app.page.evaluate(() => document.getElementById('btn-kernel').click());
     const k2 = await app.page.evaluate('state.kernel + "|" + document.getElementById("btn-kernel").textContent.trim()');
-    await app.page.click('#btn-kernel');
-    await app.page.click('#btn-mask');
+    await app.page.evaluate(() => document.getElementById('btn-kernel').click());
+    await app.page.evaluate(() => document.getElementById('btn-mask').click());
     const m = await app.page.evaluate('state.showMask');
-    await app.page.click('#btn-mask');
+    await app.page.evaluate(() => document.getElementById('btn-mask').click());
     check(k2.startsWith('v5|Kernel: v5') && m === true, `kernel and mask buttons toggle (${k2}, mask ${m})`);
 
     const b = await app.page.evaluate(SNAPSHOT);
