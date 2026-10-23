@@ -23,10 +23,17 @@ double-precision reference. Compare with <code>validation/benchmarks/run_benchma
 <pre id="json"></pre>
 <script>
   function load(src) { return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
-  const ready = load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js'));
+  const status = document.getElementById('status');
+  const ready = load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js')).catch(() => {
+    throw new Error('Could not load the hopf-hough library (hopf-hough.iife.js). If this is the GitHub Pages site, set Settings → Pages → Source to "GitHub Actions" so the build workflow publishes it; locally, run `npm run build` first.');
+  });
+  ready.catch((e) => { status.textContent = e.message; status.style.color = '#fda4af'; });
+  window.addEventListener('error', (e) => { status.textContent = 'Error: ' + e.message; status.style.color = '#fda4af'; });
+  window.addEventListener('unhandledrejection', (e) => { status.textContent = 'Error: ' + (e.reason && e.reason.message || e.reason); status.style.color = '#fda4af'; });
   document.getElementById('go').onclick = async () => {
+    status.textContent = 'starting…'; status.style.color = '';
     await ready;
-    const H = window.HopfHough, status = document.getElementById('status');
+    const H = window.HopfHough;
     const solver = new H.GpuSolver(document.createElement('canvas')), gl = solver.gl;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     const out = { renderer: String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)), userAgent: navigator.userAgent, rows: [] };

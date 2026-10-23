@@ -21,7 +21,9 @@ checks a few points against the double-precision reference, and offers the numbe
 <script>
   // Load the library bundle (works from the repository and from the GitHub Pages site).
   function load(src) { return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
-  load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js')).then(main);
+  load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js')).then(main).catch((e) => {
+    document.getElementById('log').textContent = (e && e.message) || 'Could not load the hopf-hough library (hopf-hough.iife.js). On GitHub Pages, set Settings → Pages → Source to "GitHub Actions"; locally, run `npm run build` first.';
+  });
 
   function main() {
     const H = window.HopfHough;
