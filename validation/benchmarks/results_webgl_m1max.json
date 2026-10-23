@@ -1,0 +1,8 @@
+{"renderer":"ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)","userAgent":"Chrome/154 macOS","commit":"82de870","rows":[
+{"sources":1,"beta":0.9,"M":512,"seconds":0.0084,"rel_l2":1.7183e-05},{"sources":1,"beta":0.9,"M":2048,"seconds":0.0066,"rel_l2":1.2001e-06},
+{"sources":1,"beta":0.99,"M":512,"seconds":0.0061,"rel_l2":1.0847e-04},{"sources":1,"beta":0.99,"M":2048,"seconds":0.0059,"rel_l2":6.9721e-06},
+{"sources":1,"beta":0.999,"M":512,"seconds":0.0053,"rel_l2":8.7009e-04},{"sources":1,"beta":0.999,"M":2048,"seconds":0.0051,"rel_l2":3.8005e-05},
+{"sources":1,"beta":0.9999,"M":512,"seconds":0.0054,"rel_l2":4.8067e-04},{"sources":1,"beta":0.9999,"M":2048,"seconds":0.0074,"rel_l2":2.9816e-05},
+{"sources":16,"beta":0.9,"M":512,"seconds":0.0198,"rel_l2":1.5459e-05},{"sources":16,"beta":0.9,"M":2048,"seconds":0.0202,"rel_l2":1.0813e-06},
+{"sources":64,"beta":0.9,"M":512,"seconds":0.0671,"rel_l2":1.3296e-05},{"sources":64,"beta":0.9,"M":2048,"seconds":0.0709,"rel_l2":9.6350e-07},
+{"sources":256,"beta":0.9,"M":512,"seconds":0.2538,"rel_l2":1.0723e-05},{"sources":256,"beta":0.9,"M":2048,"seconds":0.2703,"rel_l2":8.0400e-07}]}

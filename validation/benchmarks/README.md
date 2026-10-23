@@ -26,6 +26,22 @@ PyCharge evaluates the analytic trajectory, so when it converges it is exact (er
 
 **Reading:** a tie at γ ≲ 7 and for 16 sources; the hopf-hough method is 5× faster at γ = 22 and 9× faster at γ = 71, at an accuracy of a few times 1e-5 instead of machine precision.
 
+## On a real GPU (Apple M1 Max)
+
+`examples/benchmark.html` in Chrome 154 on an M1 Max (ANGLE → Metal), M = 2048, same problems and grid; `results_webgl_m1max.json`. Times include uploading the 65,536 observer coordinates and reading the field back.
+
+| case | M1 Max GPU | error | PyCharge, cheapest converged (2-core CPU) | hopf-hough JAX (2-core CPU) |
+|---|---|---|---|---|
+| β = 0.9 | 6.6 ms | 1.2e-6 | 40 ms | 38 ms |
+| β = 0.99 | 5.9 ms | 7.0e-6 | 66 ms | 61 ms |
+| β = 0.999 | 5.1 ms | 3.8e-5 | 180 ms | 34 ms |
+| β = 0.9999 | 7.4 ms | 3.0e-5 | 340 ms | 39 ms |
+| 16 sources | 20 ms | 1.1e-6 | 610 ms | 660 ms |
+| 64 sources | 71 ms | 9.6e-7 | — | — |
+| 256 sources | 270 ms | 8.0e-7 | — | — |
+
+The GPU and CPU columns come from different machines, so the ratio is indicative only; the CPU runs used a 2-core cloud container, not the M1 Max's CPU. Single-source times are dominated by fixed per-call cost (upload and readback). The marginal cost is about 1 ms per source per 65,536 points (≈ 6.5 × 10⁷ point-source evaluations per second). The errors match the software-renderer run, which confirms that the double-float root function survives the Metal compiler (see the shader comment on `BAR()` and `examples/precision-probe.html`).
+
 ## Accuracy in float32 (what GPUs run at full speed)
 
 Consumer GPUs run float64 at 1/32–1/64 of float32 speed, and Apple GPUs have no float64 at all, while PyCharge requires float64 (`jax_enable_x64`). The pulse-crossing sweep (256 observers across the synchrotron pulse, rounded to float32, compared with the exact field at the rounded points; `sweep_compare.py`):
