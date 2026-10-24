@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hopf-hough · speed lab</title>
+<style>
+  body { font: 14px/1.5 ui-sans-serif, system-ui, sans-serif; background: #0d131f; color: #e2e8f0; max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, monospace; margin: 8px 0 16px; }
+  td, th { border-bottom: 1px solid #1e293b; padding: 4px 8px; text-align: right; }
+  td:first-child, th:first-child, td:last-child, th:last-child { text-align: left; }
+  .ok { color: #6ee7b7; } .bad { color: #fda4af; } .dim { color: #94a3b8; }
+  button { font: 13px ui-monospace, monospace; padding: 6px 12px; border-radius: 6px; border: 0; background: #10b981; color: #052e1c; cursor: pointer; margin-right: 6px; }
+  button.alt { background: #334155; color: #e2e8f0; }
+  select, input { font: 13px ui-monospace, monospace; background: #0b1220; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 4px 6px; }
+  pre { background: #070a12; padding: 10px; border-radius: 8px; white-space: pre-wrap; font-size: 11px; max-height: 360px; overflow: auto; }
+  #status { font: 12px ui-monospace, monospace; }
+  ul.dec { font: 13px ui-monospace, monospace; }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Speed lab: can neighbouring pixels share work?</h1>
+<p>Runs the production display render (v6 kernel, <code>u_fastRender = 1</code>) and three candidate speed-ups on this GPU, at the canvas size the app draws at (window size × device pixel ratio),
+checks each one against the production image of the same frame, and applies the decision rules below. Nothing in the library or the app changes: the variants are built here by
+patching the exported shader text, and every patch is checked to apply exactly once.</p>
+<ul class="dec dim">
+  <li><b>oracle</b> — each pixel is handed its segment index for free (read from a texture computed beforehand, outside the timed region). The upper bound on what any bracket-sharing scheme can save.</li>
+  <li><b>tile brackets</b> — one [k<sub>lo</sub>, k<sub>hi</sub>] per 8×8 tile and source from the nested light spheres (ball misses / contains the tile, with a float32 margin); the pixel bisects inside it, with a checked fallback to the full search.</li>
+  <li><b>coarse-to-fine A</b> — field at half resolution, Catmull-Rom interpolation, 8×8 tiles that the estimator flags recomputed exactly.</li>
+</ul>
+<p>
+  Size <select id="size">
+    <option value="1">as the app (window × DPR)</option>
+    <option value="0.5">half</option>
+    <option value="0.25">quarter</option>
+    <option value="fixed256">256 × 160 (quick)</option>
+  </select>
+  Draws per timing <input id="draws" type="number" value="300" min="5" max="2000" style="width:70px">
+  Long-run frames <input id="frames" type="number" value="600" min="2" max="5000" style="width:70px">
+</p>
+<p><button id="go">Run</button><button id="long" class="alt">Long run (flicker over a full orbit)</button> <span id="status"></span></p>
+<div id="out"></div>
+<p>Copy this into a message:</p>
+<pre id="json"></pre>
+<script>
+function load(src) { return new Promise((ok, fail) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s); }); }
+const statusEl = document.getElementById('status');
+const say = (t, cls = '') => { statusEl.textContent = t; statusEl.className = cls; };
+const fail = (e) => { console.error(e); say('Error: ' + ((e && e.message) || e), 'bad'); window.__labError = String((e && e.message) || e); busy = false; };
+window.addEventListener('error', (e) => fail(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => fail(e.reason));
+const ready = load('../hopf-hough.iife.js').catch(() => load('../dist/hopf-hough.iife.js')).catch(() => {
+  throw new Error('Could not load hopf-hough.iife.js (on GitHub Pages, Source must be "GitHub Actions"; locally, run `npm run build`).');
+});
+ready.catch(fail);
+const qs = new URLSearchParams(location.search);
+if (qs.get('size')) document.getElementById('size').value = qs.get('size');
+if (qs.get('draws')) document.getElementById('draws').value = qs.get('draws');
+if (qs.get('frames')) document.getElementById('frames').value = qs.get('frames');
+const tick = () => new Promise((r) => setTimeout(r, 0));
+let busy = false;
+
+// ---------------------------------------------------------------- shader variants (string patches)
+function patch(src, anchor, replacement) {
+  const n = src.split(anchor).length - 1;
+  if (n !== 1) throw new Error(`shader patch anchor found ${n} times (expected 1): ${anchor.slice(0, 70)}`);
+  return src.replace(anchor, () => replacement);
+}
+const BIS_START = '  // Knot-level bisection: f is monotone in R along the stored knots (subluminal chords).\n';
+const BIS_END = '  // Check the end of the bracket nearer zero';
+function bisectionBlock(src) {
+  const a = src.indexOf(BIS_START), b = src.indexOf(BIS_END);
+  if (a < 0 || b < 0 || src.indexOf(BIS_START, a + 1) >= 0 || src.indexOf(BIS_END, b + 1) >= 0 || b < a) throw new Error('bisection block not found exactly once');
+  const block = src.slice(a, b);
+  for (const must of ['int lo = 0;', 'if (fHi <= 0.0) { inDomain = false;', 'if (fLo >= 0.0) { segOut = 0;', 'for (int i = 0; i < 12; i++) {']) {
+    if (!block.includes(must)) throw new Error('bisection block changed: missing ' + must);
+  }
+  return { a, b, block };
+}
+const replaceBisection = (src, f) => { const { a, b, block } = bisectionBlock(src); return src.slice(0, a) + f(block) + src.slice(b); };
+const UNI = 'uniform int u_fastRender;\n';
+const MAIN_FAST = '  g_fast = (u_readbackMode == 0 && u_fastRender == 1);\n';
+const MAIN_FIELD = '  FieldOut F = evalField(xhi, xlo);\n';
+const SP_COORD = `
+vec2 spCoord(ivec2 p) {   // observer at the centre of pixel p (the main() formula, without the varying)
+  vec2 uv = (vec2(p) + 0.5) / vec2(u_spFull);
+  return u_viewCenter + vec2((uv.x - 0.5) * 2.0 * u_aspect, (uv.y - 0.5) * 2.0) * u_viewHalfHeight;
+}
+`;
+
+// (1) oracle precompute: the production bisection, recording its result (before the double-float end check)
+function buildOraclePre(base) {
+  let s = patch(base, 'out vec4 outColor;', 'out uvec4 outIdx;');
+  s = patch(s, UNI, UNI + 'uniform int u_oneSrc;\nuniform int u_codeOut;\nuniform int u_codeIn;\nint g_loBis = 0;\n');
+  s = replaceBisection(s, (blk) => {
+    blk = patch(blk, 'if (fHi <= 0.0) { inDomain = false;', 'if (fHi <= 0.0) { g_loBis = u_codeOut; inDomain = false;');
+    blk = patch(blk, 'if (fLo >= 0.0) { segOut = 0;', 'if (fLo >= 0.0) { g_loBis = u_codeIn; segOut = 0;');
+    return blk + '  g_loBis = lo;\n';
+  });
+  const cut = s.indexOf('void main() {');
+  if (cut < 0 || s.indexOf('void main() {', cut + 1) >= 0) throw new Error('main() not found exactly once');
+  return s.slice(0, cut) + `void main() {
+  g_fast = (u_readbackMode == 0 && u_fastRender == 1);
+  vec2 pNorm = vec2((v_uv.x - 0.5) * 2.0 * u_aspect, (v_uv.y - 0.5) * 2.0);
+  vec2 xhi = u_viewCenter + pNorm * u_viewHalfHeight;
+  bool inD; int seg; float fr; SegC cc;
+  solveRoot(u_oneSrc, xhi, vec2(0.0), inD, seg, fr, cc);
+  outIdx = uvec4(uint(g_loBis), 0u, 0u, 0u);
+}
+`;
+}
+
+// (2) oracle: the segment index comes from the texture; end values, end check and Newton unchanged
+function buildOracle(base) {
+  let s = patch(base, UNI, UNI + 'uniform highp usampler2DArray u_texOracle;\nuniform int u_codeOut;\nuniform int u_codeIn;\n');
+  s = replaceBisection(s, () => `  // speed-lab oracle: segment index precomputed by the production bisection
+  int code = int(texelFetch(u_texOracle, ivec3(ivec2(gl_FragCoord.xy), s), 0).r);
+  if (code == u_codeOut) { inDomain = false; segOut = u_mT - 2; fracOut = 0.9999; cOut = segCoef(s, segOut); return; }
+  if (code == u_codeIn) { segOut = 0; fracOut = 0.0; cOut = segCoef(s, 0); return; }
+  int lo = code;
+  int hi = lo + 1;
+  float fLo = knotF(xhi, xlo, knotAt(s, lo));
+  float fHi = knotF(xhi, xlo, knotAt(s, hi));
+`);
+  return s;
+}
+
+// (3) tile brackets (CB, T = 8): bracket pass (u_spPass = 3) + bracketed bisection with a checked fallback
+function buildBrackets(base) {
+  let s = patch(base, UNI, UNI + `uniform sampler2D u_texBracket;   // one texel per (tile, source): klo, khi
+uniform int u_spPass;
+uniform int u_spCount;
+uniform ivec2 u_spFull;
+uniform int u_brTile;
+uniform int u_brTilesX;
+int g_cFail = 0;
+ivec2 g_pix = ivec2(0);
+`);
+  s = replaceBisection(s, (blk) => patch(blk, `  int lo = 0;
+  int hi = u_mT - 1;
+  Knot kl = knotAt(s, lo);
+  Knot kh = knotAt(s, hi);
+  float fLo = knotF(xhi, xlo, kl);
+  float fHi = knotF(xhi, xlo, kh);
+`, `  int lo = 0;
+  int hi = u_mT - 1;
+  int bLo = 0; int bHi = u_mT - 1;
+  {
+    vec4 br = texelFetch(u_texBracket, ivec2(g_pix.x / u_brTile + s * u_brTilesX, g_pix.y / u_brTile), 0);
+    bLo = int(br.x + 0.5); bHi = int(br.y + 0.5); lo = bLo; hi = bHi;
+  }
+  Knot kl = knotAt(s, lo);
+  Knot kh = knotAt(s, hi);
+  float fLo = knotF(xhi, xlo, kl);
+  float fHi = knotF(xhi, xlo, kh);
+  if ((fHi <= 0.0 && hi < u_mT - 1) || (fLo >= 0.0 && lo > 0)) {
+    // bracket did not contain the root: count it and fall back to the full search
+    g_cFail++; lo = 0; hi = u_mT - 1; bLo = 0; bHi = hi;
+    kl = knotAt(s, lo); kh = knotAt(s, hi); fLo = knotF(xhi, xlo, kl); fHi = knotF(xhi, xlo, kh);
+  }
+`));
+  s = patch(s, '  SegC c = segCoef(s, lo);\n  // Safeguarded Newton', '  if (lo < bLo || lo + 1 > bHi) g_cFail += 1000;\n  SegC c = segCoef(s, lo);\n  // Safeguarded Newton');
+  s = patch(s, 'void main() {\n', SP_COORD + `
+float rectDist(vec2 p, vec2 a, vec2 b) { vec2 d = max(max(a - p, p - b), vec2(0.0)); return length(d); }
+float rectFar(vec2 p, vec2 a, vec2 b) { vec2 d = max(abs(p - a), abs(p - b)); return length(d); }
+// knot k of source s: ball of radius R_k about z_k. A: ball misses the tile; B: ball contains the tile.
+bool predA(int s, int k, vec2 a, vec2 b, float ext) {
+  vec4 pv = texelFetch(u_texPosVel, ivec2(k, s), 0); vec4 lo = texelFetch(u_texPosLo, ivec2(k, s), 0); float R = texelFetch(u_texAccChg, ivec2(k, s), 0).w;
+  vec2 z = pv.xy + lo.xy;
+  float mg = 4e-6 * (R + length(z) + ext) + 1e-6;
+  return R + mg < rectDist(z, a, b);
+}
+bool predB(int s, int k, vec2 a, vec2 b, float ext) {
+  vec4 pv = texelFetch(u_texPosVel, ivec2(k, s), 0); vec4 lo = texelFetch(u_texPosLo, ivec2(k, s), 0); float R = texelFetch(u_texAccChg, ivec2(k, s), 0).w;
+  vec2 z = pv.xy + lo.xy;
+  float mg = 4e-6 * (R + length(z) + ext) + 1e-6;
+  return R - mg > rectFar(z, a, b);
+}
+vec4 bracketPass(ivec2 fc) {   // fragment (tx + s * tilesX, ty)
+  int s = fc.x / u_brTilesX, tx = fc.x - s * u_brTilesX, ty = fc.y;
+  if (s >= u_activeCount) return vec4(0.0);
+  ivec2 p0 = ivec2(tx, ty) * u_brTile, p1 = min(p0 + u_brTile - 1, u_spFull - 1);
+  vec2 ca = spCoord(p0), cb = spCoord(p1);
+  vec2 a = min(ca, cb), b = max(ca, cb);
+  float ext = length(a) + length(b);
+  int M = u_mT, klo, khi;
+  if (!predA(s, 0, a, b, ext)) klo = 0;
+  else if (predA(s, M - 1, a, b, ext)) klo = M - 2;
+  else {
+    int lo = 0, hi = M - 1;
+    for (int i = 0; i < 12; i++) { if (hi - lo <= 1) break; int mid = (lo + hi) / 2; if (predA(s, mid, a, b, ext)) lo = mid; else hi = mid; }
+    klo = lo;
+  }
+  if (klo >= M - 2) khi = M - 1;
+  else if (!predB(s, M - 1, a, b, ext)) khi = M - 1;
+  else if (predB(s, klo, a, b, ext)) khi = klo + 1;
+  else {
+    int lo = klo, hi = M - 1;
+    for (int i = 0; i < 12; i++) { if (hi - lo <= 1) break; int mid = (lo + hi) / 2; if (predB(s, mid, a, b, ext)) hi = mid; else lo = mid; }
+    khi = hi;
+  }
+  return vec4(float(klo), float(khi), 0.0, 1.0);
+}
+void main() {
+`);
+  s = patch(s, MAIN_FAST, MAIN_FAST + '  g_pix = ivec2(gl_FragCoord.xy);\n  if (u_spPass == 3) { outColor = bracketPass(g_pix); return; }\n');
+  s = patch(s, MAIN_FIELD, MAIN_FIELD + '  if (u_spCount == 1) { outColor = vec4(float(g_cFail), 0.0, 0.0, 1.0); return; }\n');
+  return s;
+}
+
+// (4) coarse-to-fine: pass 0 coarse field + estimator, pass 2 decision per refine tile, pass 1 composite (production colouring)
+function buildC2F(base) {
+  let s = patch(base, 'out vec4 outColor;', 'layout(location = 0) out vec4 outColor;\nlayout(location = 1) out vec4 outEst;');
+  s = patch(s, UNI, UNI + `uniform sampler2D u_texCoarse;    // coarse field: Ex, Ey, Bz, q
+uniform sampler2D u_texCoarseEst; // coarse estimator: eta1, eta2, sumE, minR
+uniform sampler2D u_texFlag;      // one texel per refine tile: r > 0.5 = recompute
+uniform int u_spPass;
+uniform ivec2 u_spFull;
+uniform int u_stride;
+uniform ivec2 u_coarseN;
+uniform int u_refTile;
+uniform int u_interp;
+uniform float u_hCoarse;
+uniform float u_thrD2, u_thrEta, u_thrDist, u_thrQ;
+float g_eta1 = 0.0; float g_eta2 = 0.0; float g_sumE = 0.0; float g_minR = 1e30;
+`);
+  s = patch(s, '    o.bz += n.x * eS.y - n.y * eS.x;\n', `    o.bz += n.x * eS.y - n.y * eS.x;
+    {
+      // analytic local-variation estimate: grad R_ret = n / kappa, d kappa / dR <= |acc| + 1/r, E ~ kappa^-3 r^-1..-2
+      float relS = 3.0 * (length(g.acc) / kappa + 1.0 / max(rr, 1e-6)) / kappa;
+      float mS = length(eS);
+      g_eta1 += mS * relS; g_eta2 += mS * relS * relS; g_sumE += mS; g_minR = min(g_minR, rr);
+    }
+`);
+  s = patch(s, 'void main() {\n', SP_COORD + `
+vec4 cAt(int I, int J) { return texelFetch(u_texCoarse, ivec2(clamp(I, 0, u_coarseN.x - 1), clamp(J, 0, u_coarseN.y - 1)), 0); }
+vec4 eAt(int I, int J) { return texelFetch(u_texCoarseEst, ivec2(clamp(I, 0, u_coarseN.x - 1), clamp(J, 0, u_coarseN.y - 1)), 0); }
+float spGain() { return u_gain / pow(float(max(1, u_activeCount)), 0.42); }
+vec2 dispVec(vec2 E) {   // display vector: compressed magnitude along the field direction
+  float m = length(E) * spGain(); float l = log(1.0 + 1.85 * m);
+  return m > 0.0 ? (l / (1.35 + l)) * (E / length(E)) : vec2(0.0);
+}
+float dComp(float magE) {   // d compressed / d|E|
+  float gN = spGain();
+  float m = magE * gN; float l = log(1.0 + 1.85 * m);
+  return gN * 1.35 / ((1.35 + l) * (1.35 + l)) * 1.85 / (1.0 + 1.85 * m);
+}
+vec4 crW(float t) {
+  float t2 = t * t, t3 = t2 * t;
+  return vec4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
+}
+vec2 spInterp(ivec2 fc) {
+  int st = u_stride;
+  int I = fc.x / st, J = fc.y / st;
+  float fx = float(fc.x - I * st) / float(st), fy = float(fc.y - J * st) / float(st);
+  if (u_interp == 0) return mix(mix(cAt(I, J).xy, cAt(I + 1, J).xy, fx), mix(cAt(I, J + 1).xy, cAt(I + 1, J + 1).xy, fx), fy);
+  vec4 wx = crW(fx), wy = crW(fy);
+  vec2 E = vec2(0.0);
+  for (int j = 0; j < 4; j++) {
+    vec2 row = wx.x * cAt(I - 1, J - 1 + j).xy + wx.y * cAt(I, J - 1 + j).xy + wx.z * cAt(I + 1, J - 1 + j).xy + wx.w * cAt(I + 2, J - 1 + j).xy;
+    E += wy[j] * row;
+  }
+  return E;
+}
+vec4 decidePass(ivec2 fc) {   // one fragment per refine tile; coarse cells overlapping the tile, dilated by one cell
+  ivec2 p0 = fc * u_refTile, p1 = min(p0 + u_refTile - 1, u_spFull - 1);
+  int I0 = p0.x / u_stride - 1, I1 = p1.x / u_stride + 1, J0 = p0.y / u_stride - 1, J1 = p1.y / u_stride + 1;
+  float d2 = 0.0, eta = 0.0, q = 0.0, rmin = 1e30;
+  for (int J = J0; J <= J1 + 1; J++) for (int I = I0; I <= I1 + 1; I++) {
+    vec4 c = cAt(I, J), e = eAt(I, J);
+    vec2 v = dispVec(c.xy);
+    vec2 dxx = dispVec(cAt(I - 1, J).xy) - 2.0 * v + dispVec(cAt(I + 1, J).xy);
+    vec2 dyy = dispVec(cAt(I, J - 1).xy) - 2.0 * v + dispVec(cAt(I, J + 1).xy);
+    d2 = max(d2, max(length(dxx), length(dyy)));
+    eta = max(eta, dComp(length(c.xy)) * u_hCoarse * e.x);
+    q = max(q, c.w);
+    rmin = min(rmin, e.w);
+  }
+  bool f = d2 > u_thrD2 || eta > u_thrEta || rmin < u_thrDist * u_hCoarse || q > u_thrQ;
+  return vec4(f ? 1.0 : 0.0, d2, eta, rmin);
+}
+void main() {
+`);
+  s = patch(s, MAIN_FAST, MAIN_FAST + `  if (u_spPass == 2) { outColor = decidePass(ivec2(gl_FragCoord.xy)); return; }
+  if (u_spPass == 0) {
+    FieldOut C = evalField(spCoord(ivec2(gl_FragCoord.xy) * u_stride), vec2(0.0));
+    outColor = vec4(C.e, C.bz, C.quality);
+    outEst = vec4(g_eta1, g_eta2, g_sumE, g_minR);
+    return;
+  }
+`);
+  s = patch(s, MAIN_FIELD, `  FieldOut F;
+  if (u_spPass == 1 && texelFetch(u_texFlag, ivec2(gl_FragCoord.xy) / u_refTile, 0).r < 0.5) {
+    F.e = spInterp(ivec2(gl_FragCoord.xy)); F.eRad = vec2(0.0); F.eVel = vec2(0.0); F.bz = 0.0; F.quality = 0.0; F.emit0 = vec2(0.0); F.dbg = vec4(0.0);
+  } else F = evalField(xhi, xlo);
+`);
+  return s;
+}
+
+// Setting A of the coherence study (swarm3d/work/coh_B/chosen.json)
+const SETTING_A = { name: 'A s2 G8 cubic', s: 2, G: 8, interp: 1, thr: { d2: 0.02, eta: 0.2 } };
+const BR_T = 8;
+
+// ---------------------------------------------------------------- GL plumbing
+let H, solver, gl, prog = {}, dummy, timerExt, renderer, W, Hh, dpr;
+function compile(type, text) {
+  const sh = gl.createShader(type); gl.shaderSource(sh, text); gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('shader compile failed: ' + gl.getShaderInfoLog(sh));
+  return sh;
+}
+function program(name, frag) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, H.VERTEX_SHADER));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, frag));
+  gl.bindAttribLocation(p, gl.getAttribLocation(solver.program, 'a_pos'), 'a_pos');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(name + ': link failed: ' + gl.getProgramInfoLog(p));
+  const cache = new Map();
+  const loc = (n) => { if (!cache.has(n)) cache.set(n, gl.getUniformLocation(p, n)); return cache.get(n); };
+  return {
+    name, p,
+    i(n, v) { const l = loc(n); if (l) gl.uniform1i(l, v); },
+    f(n, v) { const l = loc(n); if (l) gl.uniform1f(l, v); },
+    u(n, v) { const l = loc(n); if (l) gl.uniform1ui(l, v); },
+    i2(n, a, b) { const l = loc(n); if (l) gl.uniform2i(l, a, b); },
+    f2(n, a, b) { const l = loc(n); if (l) gl.uniform2f(l, a, b); },
+  };
+}
+function tex2D(unit, w, h, ifmt, fmt, type, data = null) {
+  const t = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, data);
+  return t;
+}
+function target(w, h, n = 1, ifmt = 'RGBA32F') {
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  const ts = [];
+  for (let k = 0; k < n; k++) {
+    const t = ifmt === 'RGBA8' ? tex2D(15, w, h, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE) : tex2D(15, w, h, gl.RGBA32F, gl.RGBA, gl.FLOAT);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + k, gl.TEXTURE_2D, t, 0); ts.push(t);
+  }
+  gl.drawBuffers(ts.map((_, k) => gl.COLOR_ATTACHMENT0 + k));
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('framebuffer incomplete (' + w + '×' + h + ' ' + ifmt + ')');
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fb, ts, w, h, n, del() { gl.deleteFramebuffer(fb); ts.forEach((t) => gl.deleteTexture(t)); } };
+}
+function bind(unit, t, kind = gl.TEXTURE_2D) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(kind, t); }
+function draw(pr, rt) {
+  gl.useProgram(pr.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fb); gl.viewport(0, 0, rt.w, rt.h);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+function readRGBA8(rt) { const o = new Uint8Array(rt.w * rt.h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fb); gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(0, 0, rt.w, rt.h, gl.RGBA, gl.UNSIGNED_BYTE, o); return o; }
+function readF32(rt, k = 0) { const o = new Float32Array(rt.w * rt.h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fb); gl.readBuffer(gl.COLOR_ATTACHMENT0 + k); gl.readPixels(0, 0, rt.w, rt.h, gl.RGBA, gl.FLOAT, o); return o; }
+const px1u = new Uint8Array(4), px1f = new Float32Array(4);
+function sync(rt) { gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fb); gl.readBuffer(gl.COLOR_ATTACHMENT0); if (rt.ifmt8) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px1u); else gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px1f); }
+function glCheck(where) { const e = gl.getError(); if (e !== gl.NO_ERROR) throw new Error(`WebGL error 0x${e.toString(16)} at ${where}` + (e === gl.OUT_OF_MEMORY ? ' (out of GPU memory: choose a smaller size)' : '')); }
+
+async function init() {
+  await ready;
+  if (solver) return;
+  H = window.HopfHough;
+  const canvas = document.createElement('canvas'); canvas.width = 4; canvas.height = 4;
+  solver = new H.GpuSolver(canvas, H.KNOWN_PATH_SHADERS); gl = solver.gl;
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  renderer = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+  timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  const base = H.KNOWN_PATH_SHADERS.fragment;
+  prog.base = program('production', base);
+  prog.pre = program('oracle precompute', buildOraclePre(base));
+  prog.oracle = program('oracle', buildOracle(base));
+  prog.br = program('tile brackets', buildBrackets(base));
+  prog.c2f = program('coarse-to-fine', buildC2F(base));
+  dummy = tex2D(15, 1, 1, gl.RGBA32F, gl.RGBA, gl.FLOAT, new Float32Array(4));
+  glCheck('init');
+}
+
+// ---------------------------------------------------------------- scenes
+const C = 2.35, VIEW_HALF = 1.45;
+function sceneDefs() {
+  return [
+    { key: 'ensemble32', label: '32-source ensemble (precessing ellipses, β 0.8), M = 128', M: 128, kBin: 9, softEps: 0.06,
+      trs: () => Array.from({ length: 32 }, (_, i) => H.precessingEllipse({ index: i, beta: 0.8, omega: H.DEFAULT_CONFIG.omega, c: C })) },
+    { key: 'orbit_g71', label: 'single orbit, β 0.9999 (γ ≈ 71), M = 512', M: 512, kBin: 11, softEps: 0,
+      trs: () => [H.circularOrbit({ radius: 0.85, beta: 0.9999, c: C })] },
+  ];
+}
+function makeScene(def, t0 = 2.5) {
+  const trs = def.trs();
+  // The app's display settings: Newton capped at 4 steps above 4 sources (V6_RENDER_NEWTON), known path on.
+  const cfg = { ...H.DEFAULT_CONFIG, c: C, mT: def.M, kBin: def.kBin, softEps: def.softEps, knownPath: true, newton: trs.length <= 4 ? 12 : 4 };
+  const sim = new H.Simulation(cfg, trs, t0);
+  return { def, cfg, sim, N: trs.length };
+}
+function setTime(sc, t) { sc.sim.time = t; sc.sim.repopulate(); }
+function upload(sc) { solver.upload(sc.sim.shellHistories, sc.cfg.mT); }
+
+function setCommon(pr, sc) {
+  const cfg = sc.cfg;
+  gl.useProgram(pr.p);
+  pr.i('u_texPosVel', 0); pr.i('u_texAccChg', 1); pr.i('u_texQueryCoords', 2); pr.i('u_texPosLo', 4); pr.i('u_texJerk', 5);
+  pr.i('u_texOracle', 7); pr.i('u_texBracket', 7); pr.i('u_texCoarse', 8); pr.i('u_texCoarseEst', 9); pr.i('u_texFlag', 10);
+  pr.i('u_activeCount', sc.N); pr.i('u_mT', cfg.mT); pr.i('u_kBin', cfg.kBin); pr.i('u_velMode', cfg.velMode);
+  pr.f('u_scaleL', cfg.scaleL); pr.f('u_softEps', cfg.softEps); pr.f('u_c', cfg.c);
+  pr.i('u_newton', cfg.newton); pr.i('u_certMode', cfg.certMode); pr.i('u_rootMode', cfg.rootMode); pr.i('u_precision', cfg.precision);
+  pr.f('u_betaMax', cfg.betaMax); pr.f('u_one', 1); pr.u('u_zero', 0);
+  pr.i('u_taperOn', cfg.prefilter && cfg.gridMode === 'compactified' ? 1 : 0); pr.f('u_omega', cfg.omega);
+  pr.f('u_ringReach', cfg.c * cfg.dt * (cfg.ringSize - 4)); pr.i('u_knownPath', cfg.knownPath && solver.uploadedExact ? 1 : 0);
+  pr.i('u_readbackMode', 0); pr.i('u_readbackLayout', 0); pr.i('u_fastRender', 1);
+  pr.f('u_time', sc.sim.time); pr.f('u_aspect', W / Hh); pr.f2('u_viewCenter', 0, 0); pr.f('u_viewHalfHeight', VIEW_HALF);
+  pr.i('u_channel', 0); pr.f('u_gain', 1); pr.i('u_showWavePool', 1); pr.i('u_showImpostors', 0); pr.i('u_showMask', 0); pr.f('u_maskThreshold', 1.5);
+  pr.i2('u_spFull', W, Hh); pr.i('u_spCount', 0); pr.i('u_spPass', 1);
+  const big = sc.cfg.mT > 254;
+  pr.i('u_codeOut', big ? 65535 : 255); pr.i('u_codeIn', big ? 65534 : 254);
+}
+
+// ---------------------------------------------------------------- per-size resources
+let R = null;
+function resources(N) {
+  if (R && R.W === W && R.H === Hh && R.N >= N) return R;
+  if (R) R.free();
+  const out = target(W, Hh, 1, 'RGBA8'); out.ifmt8 = true;
+  const out2 = target(W, Hh, 1, 'RGBA8'); out2.ifmt8 = true;
+  const cnt = target(W, Hh, 1);
+  const tx = Math.ceil(W / BR_T), ty = Math.ceil(Hh / BR_T);
+  const br = target(tx * N, ty, 1);
+  const s = SETTING_A.s, wc = Math.floor((W - 1) / s) + 2, hc = Math.floor((Hh - 1) / s) + 2;
+  const coarse = target(wc, hc, 2);
+  const gx = Math.ceil(W / SETTING_A.G), gy = Math.ceil(Hh / SETTING_A.G);
+  const flag = target(gx, gy, 1);
+  R = { W, H: Hh, N, out, out2, cnt, br, brTx: tx, brTy: ty, coarse, wc, hc, flag, gx, gy, oracle: null, oracleKey: '',
+    free() { [out, out2, cnt, br, coarse, flag].forEach((r) => r.del()); if (this.oracle) gl.deleteTexture(this.oracle); } };
+  glCheck('allocate render targets');
+  return R;
+}
+function unbindAux() { for (const u of [7, 8, 9, 10]) bind(u, dummy); bind(7, null, gl.TEXTURE_2D_ARRAY); }
+
+// ---------------------------------------------------------------- frames (what is timed)
+function frameBase(sc, rt) { unbindAux(); draw(prog.base, rt); }
+function frameOracle(sc, rt) { unbindAux(); bind(7, R.oracle, gl.TEXTURE_2D_ARRAY); draw(prog.oracle, rt); }
+function frameBrackets(sc, rt, countMode = 0) {
+  unbindAux();
+  const p = prog.br; gl.useProgram(p.p);
+  p.i('u_brTile', BR_T); p.i('u_brTilesX', R.brTx);
+  p.i('u_spPass', 3); p.i('u_spCount', 0);
+  const brRt = { ...R.br, w: R.brTx * sc.N, h: R.brTy };
+  draw(p, brRt);
+  bind(7, R.br.ts[0]);
+  gl.useProgram(p.p); p.i('u_spPass', 1); p.i('u_spCount', countMode);
+  draw(p, rt);
+}
+function frameC2F(sc, rt) {
+  const A = SETTING_A, p = prog.c2f;
+  unbindAux();
+  gl.useProgram(p.p);
+  p.i('u_stride', A.s); p.i2('u_coarseN', R.wc, R.hc); p.i('u_refTile', A.G); p.i('u_interp', A.interp);
+  p.f('u_hCoarse', A.s * 2 * VIEW_HALF / Hh);
+  p.f('u_thrD2', A.thr.d2 ?? 1e30); p.f('u_thrEta', A.thr.eta ?? 1e30); p.f('u_thrDist', A.thr.dist ?? -1); p.f('u_thrQ', A.thr.q ?? 1e30);
+  p.i('u_spPass', 0); draw(p, R.coarse);
+  bind(8, R.coarse.ts[0]); bind(9, R.coarse.ts[1]);
+  gl.useProgram(p.p); p.i('u_spPass', 2);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, R.flag.fb); draw(p, R.flag);
+  bind(10, R.flag.ts[0]);
+  gl.useProgram(p.p); p.i('u_spPass', 1); draw(p, rt);
+}
+
+// oracle texture: the production bisection's segment index per pixel and source (not timed)
+function makeOracleTexture(sc) {
+  const N = sc.N, big = sc.cfg.mT > 254;
+  if (R.oracle) gl.deleteTexture(R.oracle);
+  const t = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, k, v);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, big ? gl.R16UI : gl.R8UI, W, Hh, N);
+  glCheck('allocate oracle texture (' + (W * Hh * N * (big ? 2 : 1) / 1048576).toFixed(0) + ' MB)');
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+  const fb = gl.createFramebuffer();
+  gl.useProgram(prog.pre.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.viewport(0, 0, W, Hh);
+  for (let s = 0; s < N; s++) {
+    gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t, 0, s);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+    prog.pre.i('u_oneSrc', s);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  const one = new Uint32Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_INT, one);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fb);
+  R.oracle = t;
+  glCheck('oracle precompute');
+}
+
+// ---------------------------------------------------------------- comparisons
+function compare(a, b) {
+  let mism = 0, gt1 = 0, maxd = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
+    if (d > 0) mism++;
+    if (d > 1) gt1++;
+    if (d > maxd) maxd = d;
+  }
+  return { mismatchPx: mism, gt1Px: gt1, maxLevels: maxd, pixels: a.length / 4 };
+}
+function fallbacks(sc) {
+  frameBrackets(sc, R.cnt, 1);
+  const c = readF32(R.cnt);
+  let fails = 0, outside = 0;
+  for (let i = 0; i < c.length; i += 4) { const v = Math.round(c[i]); outside += Math.floor(v / 1000); fails += v % 1000; }
+  return { fallbacks: fails, outsideBracket: outside };
+}
+function refinedFraction() {
+  const f = readF32(R.flag); let n = 0;
+  for (let i = 0; i < f.length; i += 4) if (f[i] > 0.5) n++;
+  return n / (f.length / 4);
+}
+
+// ---------------------------------------------------------------- timing
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length % 2 ? s[(s.length - 1) / 2] : 0.5 * (s[s.length / 2 - 1] + s[s.length / 2]); };
+async function timeFrames(fn, rt, draws, label) {
+  for (let k = 0; k < 3; k++) { fn(); sync(rt); }   // warm-up (compilation, caches)
+  if (timerExt) {
+    const qsList = [];
+    for (let k = 0; k < draws; k++) {
+      const q = gl.createQuery();
+      gl.beginQuery(timerExt.TIME_ELAPSED_EXT, q); fn(); gl.endQuery(timerExt.TIME_ELAPSED_EXT);
+      qsList.push(q);
+      if (k % 10 === 9) { sync(rt); say(`${label}: ${k + 1}/${draws} draws (GPU timer)…`); await tick(); }
+    }
+    sync(rt);
+    const ms = [];
+    const t0 = performance.now();
+    while (qsList.length) {
+      const q = qsList[0];
+      if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) { if (performance.now() - t0 > 20000) break; await new Promise((r) => setTimeout(r, 5)); continue; }
+      qsList.shift();
+      if (!gl.getParameter(timerExt.GPU_DISJOINT_EXT)) ms.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+      gl.deleteQuery(q);
+    }
+    if (ms.length >= Math.min(20, draws)) return { ms: median(ms), samples: ms.length, method: 'GPU timer' };
+  }
+  const ms = [];
+  let lastYield = performance.now();
+  for (let k = 0; k < draws; k++) {
+    const t0 = performance.now(); fn(); sync(rt); ms.push(performance.now() - t0);
+    if (performance.now() - lastYield > 250) { say(`${label}: ${k + 1}/${draws} draws (synced wall-clock)…`); await tick(); lastYield = performance.now(); }
+  }
+  return { ms: median(ms), samples: ms.length, method: 'synced wall-clock' };
+}
+
+// ---------------------------------------------------------------- page
+function chooseSize() {
+  const v = document.getElementById('size').value;
+  dpr = window.devicePixelRatio || 1;
+  if (v === 'fixed256') { W = 256; Hh = 160; return; }
+  const f = Number(v) || 1;
+  W = Math.max(16, Math.round(window.innerWidth * dpr * f));
+  Hh = Math.max(16, Math.round(window.innerHeight * dpr * f));
+}
+const fmt = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x)) ? '—' : Number(x).toFixed(d);
+const pct = (x) => (x > 0 ? '+' : '') + (100 * x).toFixed(1) + '%';
+
+function decide(res) {
+  const e = res.scenes.ensemble32, rules = [];
+  if (!e) return rules;
+  const base = e.tests.baseline.ms, or = e.tests.oracle, br = e.tests.tile_brackets, cf = e.tests.coarse_to_fine_A;
+  const oracleSave = 1 - or.ms / base;
+  const oracleOk = or.correct.mismatchPx === 0;
+  let bracketVerdict;
+  if (!oracleOk) bracketVerdict = 'oracle output differs from production: fix the oracle before deciding';
+  else if (oracleSave < 0.10) bracketVerdict = 'bracket sharing: drop';
+  else if (oracleSave >= 0.25) bracketVerdict = 'test tile brackets';
+  else bracketVerdict = 'gray zone (10–25%): tile brackets only if they clear the ship bar below';
+  rules.push({ rule: `oracle saves ${(100 * oracleSave).toFixed(1)}% at 32 sources (rule: < 10% drop, ≥ 25% test tile brackets)`, saving: oracleSave, verdict: bracketVerdict });
+  const brSave = 1 - br.ms / base;
+  const brShip = brSave >= 0.10 && oracleSave > 0 && brSave >= 0.5 * oracleSave && br.correct.fallbacks === 0 && br.correct.outsideBracket === 0 && br.correct.mismatchPx === 0;
+  rules.push({ rule: `tile brackets save ${(100 * brSave).toFixed(1)}% with ${br.correct.fallbacks} fallbacks (rule: ship if ≥ 10% faster at 32 sources, ≥ 50% of the oracle gain, 0 fallbacks)`, saving: brSave,
+    ofOracle: oracleSave > 0 ? brSave / oracleSave : null, fallbacks: br.correct.fallbacks, verdict: brShip ? 'ship tile brackets' : 'do not ship tile brackets' });
+  const speedup = base / cf.ms;
+  const cfOk = speedup >= 1.3 && cf.correct.maxLevels <= 1;
+  rules.push({ rule: `coarse-to-fine A is ${speedup.toFixed(2)}× with max error ${cf.correct.maxLevels} level(s) (rule: preview mode if ≥ 1.3× faster at 32 sources and ≤ 1 level)`, speedup, maxLevels: cf.correct.maxLevels,
+    verdict: cfOk ? 'coarse-to-fine A: add as a preview mode' : 'coarse-to-fine A: not a preview mode' });
+  return rules;
+}
+
+function render(res) {
+  let h = `<p class="dim">${res.renderer} · ${res.width} × ${res.height} px (DPR ${res.dpr}) · timing: ${res.timing}${res.timing === 'synced wall-clock' ? ' (median of ' + res.draws + ' draws, each followed by a 1-pixel readPixels)' : ''}</p>`;
+  for (const sc of Object.values(res.scenes)) {
+    h += `<h3>${sc.label}</h3><table><tr><th>test</th><th>ms / frame</th><th>vs baseline</th><th>correctness against production (same frame)</th></tr>`;
+    const b = sc.tests.baseline.ms;
+    for (const [k, t] of Object.entries(sc.tests)) {
+      let c = '';
+      if (k === 'baseline') c = '<span class="dim">reference</span>';
+      else if (k === 'coarse_to_fine_A') c = `<span class="${t.correct.maxLevels <= 1 ? 'ok' : 'bad'}">max ${t.correct.maxLevels} level(s), ${t.correct.gt1Px} px > 1 level</span>, refined ${(100 * t.correct.refinedFraction).toFixed(1)}% of tiles`;
+      else {
+        const ok = t.correct.mismatchPx === 0 && !(t.correct.fallbacks > 0) && !(t.correct.outsideBracket > 0);
+        c = `<span class="${ok ? 'ok' : 'bad'}">${t.correct.mismatchPx} mismatching px (max ${t.correct.maxLevels} levels)` + (k === 'tile_brackets' ? `, ${t.correct.fallbacks} fallbacks` + (t.correct.outsideBracket ? `, ${t.correct.outsideBracket} outside bracket` : '') : '') + '</span>';
+      }
+      h += `<tr><td>${t.name}</td><td>${fmt(t.ms, 3)}</td><td>${k === 'baseline' ? '' : pct(t.ms / b - 1)}</td><td>${c}</td></tr>`;
+    }
+    h += '</table>';
+  }
+  if (res.decisions && res.decisions.length) {
+    h += '<h3>Decisions (32-source ensemble)</h3><ul class="dec">';
+    for (const d of res.decisions) h += `<li>${d.rule}<br>→ <b>${d.verdict}</b></li>`;
+    h += '</ul>';
+  }
+  if (res.swiftshader) h += '<p class="bad">Software renderer (SwiftShader): the correctness columns are valid, the timings are not GPU speeds.</p>';
+  document.getElementById('out').innerHTML = h;
+  document.getElementById('json').textContent = JSON.stringify(res, null, 1);
+}
+
+async function runMain() {
+  if (busy) return; busy = true;
+  say('starting…');
+  await init();
+  chooseSize();
+  const draws = Math.max(5, Number(document.getElementById('draws').value) || 300);
+  const res = { page: 'speed-lab', version: 1, renderer, userAgent: navigator.userAgent, width: W, height: Hh, dpr, draws,
+    timing: timerExt ? 'GPU timer' : 'synced wall-clock', swiftshader: /swiftshader/i.test(renderer), settingA: SETTING_A, bracketTile: BR_T, scenes: {} };
+  for (const def of sceneDefs()) {
+    const sc = makeScene(def);
+    upload(sc);
+    resources(sc.N);
+    for (const k of ['base', 'pre', 'oracle', 'br', 'c2f']) setCommon(prog[k], sc);
+    glCheck('uniforms');
+    say(`${def.label}: production frame…`); await tick();
+    frameBase(sc, R.out); const ref = readRGBA8(R.out);
+    say(`${def.label}: oracle precompute (${sc.N} source pass(es), not timed)…`); await tick();
+    makeOracleTexture(sc);
+    frameOracle(sc, R.out2); const cOr = compare(ref, readRGBA8(R.out2));
+    frameBrackets(sc, R.out2); const cBr = { ...compare(ref, readRGBA8(R.out2)), ...fallbacks(sc) };
+    frameC2F(sc, R.out2); const cCf = { ...compare(ref, readRGBA8(R.out2)), refinedFraction: refinedFraction() };
+    glCheck('correctness frames');
+    const tests = {};
+    const t = async (key, name, fn, correct) => { const r = await timeFrames(fn, R.out2, draws, `${def.key} · ${name}`); tests[key] = { name, ms: r.ms, samples: r.samples, method: r.method, correct }; res.timing = r.method; };
+    await t('baseline', 'production display render', () => frameBase(sc, R.out2), null);
+    await t('oracle', 'oracle segment index', () => frameOracle(sc, R.out2), cOr);
+    await t('tile_brackets', `tile brackets T = ${BR_T}`, () => frameBrackets(sc, R.out2), cBr);
+    await t('coarse_to_fine_A', 'coarse-to-fine A', () => frameC2F(sc, R.out2), cCf);
+    glCheck('timing');
+    res.scenes[def.key] = { label: def.label, sources: sc.N, M: def.M, newton: sc.cfg.newton, time: sc.sim.time, tests };
+    if (R.oracle) { gl.deleteTexture(R.oracle); R.oracle = null; }
+    res.decisions = decide(res);
+    render(res);
+  }
+  window.__labResult = res;
+  say('done · ' + renderer + (res.swiftshader ? ' (software: timings are not GPU speeds)' : ''), 'ok');
+  busy = false;
+}
+
+// Long run: frames spread over a full orbit; per frame, coarse-to-fine A and tile brackets against production.
+function orbitPeriod(sc) {
+  if (sc.def.key === 'orbit_g71') return 2 * Math.PI * 0.85 / (0.9999 * C);
+  // ensemble: time for every source to sweep at least 2π about the origin
+  const trs = sc.sim.trajectories, t0 = sc.sim.time, dt = 0.002;
+  const ang = trs.map(() => 0), prev = trs.map((tr) => { const k = tr.kinematics(t0); return Math.atan2(k.y, k.x); });
+  for (let t = t0 + dt; t < t0 + 200; t += dt) {
+    let done = true;
+    trs.forEach((tr, i) => { const k = tr.kinematics(t), a = Math.atan2(k.y, k.x); let d = a - prev[i]; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); ang[i] += d; prev[i] = a; if (Math.abs(ang[i]) < 2 * Math.PI) done = false; });
+    if (done) return t - t0;
+  }
+  return 200;
+}
+async function runLong() {
+  if (busy) return; busy = true;
+  say('starting long run…');
+  await init();
+  chooseSize();
+  const frames = Math.max(2, Number(document.getElementById('frames').value) || 600);
+  const res = { page: 'speed-lab', test: 'long-run flicker', version: 1, renderer, userAgent: navigator.userAgent, width: W, height: Hh, dpr, frames, swiftshader: /swiftshader/i.test(renderer), scenes: {} };
+  for (const def of sceneDefs()) {
+    const sc = makeScene(def);
+    const T = orbitPeriod(sc), t0 = sc.sim.time;
+    upload(sc); resources(sc.N);
+    const acc = { period: T, frames, c2f_maxLevels: 0, c2f_framesOver1: 0, c2f_pxOver1: 0, c2f_flickerMaxLevels: 0, c2f_flickerPxOver1: 0,
+      c2f_refinedMean: 0, c2f_refinedMax: 0, br_fallbacks: 0, br_outsideBracket: 0, br_mismatchPx: 0, br_framesMismatch: 0 };
+    let prevErr = null;
+    const tStart = performance.now();
+    for (let f = 0; f < frames; f++) {
+      setTime(sc, t0 + T * f / frames); upload(sc);
+      for (const k of ['base', 'br', 'c2f']) setCommon(prog[k], sc);
+      frameBase(sc, R.out); const ref = readRGBA8(R.out);
+      frameC2F(sc, R.out2); const img = readRGBA8(R.out2);
+      const rf = refinedFraction();
+      acc.c2f_refinedMean += rf / frames; acc.c2f_refinedMax = Math.max(acc.c2f_refinedMax, rf);
+      const err = new Int16Array(ref.length);
+      let fmax = 0;
+      for (let i = 0; i < ref.length; i += 4) {
+        let pe = 0, pf = 0;
+        for (let ch = 0; ch < 3; ch++) {
+          const e = img[i + ch] - ref[i + ch]; err[i + ch] = e;
+          pe = Math.max(pe, Math.abs(e));
+          if (prevErr) pf = Math.max(pf, Math.abs(e - prevErr[i + ch]));
+        }
+        if (pe > fmax) fmax = pe;
+        if (pe > 1) acc.c2f_pxOver1++;
+        if (pf > acc.c2f_flickerMaxLevels) acc.c2f_flickerMaxLevels = pf;
+        if (pf > 1) acc.c2f_flickerPxOver1++;
+      }
+      prevErr = err;
+      acc.c2f_maxLevels = Math.max(acc.c2f_maxLevels, fmax); if (fmax > 1) acc.c2f_framesOver1++;
+      frameBrackets(sc, R.out2); const cb = compare(ref, readRGBA8(R.out2)); const fb = fallbacks(sc);
+      acc.br_fallbacks += fb.fallbacks; acc.br_outsideBracket += fb.outsideBracket; acc.br_mismatchPx += cb.mismatchPx; if (cb.mismatchPx) acc.br_framesMismatch++;
+      if (f % 5 === 4 || f === frames - 1) {
+        const eta = (performance.now() - tStart) / (f + 1) * (frames - f - 1) / 1000;
+        say(`${def.key}: frame ${f + 1}/${frames} · c2f worst ${acc.c2f_maxLevels} level(s) · bracket fallbacks ${acc.br_fallbacks} · ~${eta.toFixed(0)} s left`);
+        await tick();
+      }
+    }
+    glCheck('long run');
+    acc.verdict_c2f = acc.c2f_maxLevels <= 1 ? 'no frame over 1 level' : `${acc.c2f_framesOver1} frame(s) over 1 level`;
+    acc.verdict_brackets = acc.br_fallbacks === 0 && acc.br_mismatchPx === 0 && acc.br_outsideBracket === 0 ? 'exact on every frame, 0 fallbacks' : 'fallbacks or mismatches seen';
+    res.scenes[def.key] = { label: def.label, ...acc };
+    let h = `<p class="dim">${renderer} · ${W} × ${Hh} px · ${frames} frames per scene over one full orbit</p><table><tr><th>scene</th><th>c2f worst</th><th>frames > 1 level</th><th>flicker worst Δ</th><th>refined (mean / max)</th><th>bracket fallbacks</th><th>bracket mismatching px</th></tr>`;
+    for (const s of Object.values(res.scenes)) h += `<tr><td>${s.label}</td><td class="${s.c2f_maxLevels <= 1 ? 'ok' : 'bad'}">${s.c2f_maxLevels}</td><td>${s.c2f_framesOver1}</td><td>${s.c2f_flickerMaxLevels}</td><td>${(100 * s.c2f_refinedMean).toFixed(1)}% / ${(100 * s.c2f_refinedMax).toFixed(1)}%</td><td class="${s.br_fallbacks ? 'bad' : 'ok'}">${s.br_fallbacks}</td><td class="${s.br_mismatchPx ? 'bad' : 'ok'}">${s.br_mismatchPx}</td></tr>`;
+    h += '</table><p class="dim">c2f worst: largest colour-level difference from production on any frame. Flicker worst Δ: largest frame-to-frame change of that difference at one pixel (what you would see as shimmer).</p>';
+    document.getElementById('out').innerHTML = h;
+    document.getElementById('json').textContent = JSON.stringify(res, null, 1);
+  }
+  window.__labResult = res;
+  say('long run done · ' + renderer, 'ok');
+  busy = false;
+}
+
+document.getElementById('go').onclick = () => runMain().catch(fail);
+document.getElementById('long').onclick = () => runLong().catch(fail);
+if (qs.get('auto') === 'run') runMain().catch(fail);
+if (qs.get('auto') === 'long') runLong().catch(fail);
+</script>
+</body>
+</html>
