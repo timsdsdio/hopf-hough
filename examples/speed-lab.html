@@ -31,11 +31,12 @@ patching the exported shader text, and every patch is checked to apply exactly o
 </ul>
 <p>
   Size <select id="size">
-    <option value="1">as the app (window size, 1 pixel per screen point)</option>
-    <option value="retina">Retina (window × device pixel ratio, 4× the pixels)</option>
-    <option value="0.5">half</option>
-    <option value="0.25">quarter</option>
-    <option value="fixed256">256 × 160 (quick)</option>
+    <option value="1080p" selected>1920 × 1080 (1080p, standard)</option>
+    <option value="720p">1280 × 720 (720p)</option>
+    <option value="4k">3840 × 2160 (4K)</option>
+    <option value="1">this window (1 pixel per screen point)</option>
+    <option value="retina">this window at device pixels (Retina)</option>
+    <option value="fixed256">256 × 160 (quick check)</option>
   </select>
   Draws per timing <input id="draws" type="number" value="300" min="5" max="2000" style="width:70px">
   Long-run frames <input id="frames" type="number" value="600" min="2" max="5000" style="width:70px">
@@ -555,7 +556,8 @@ function chooseSize() {
   const v = document.getElementById('size').value;
   // Tim's app renders at CSS-pixel resolution (DPR 1); "retina" is the device-pixel stress case.
   dpr = v === 'retina' ? (window.devicePixelRatio || 1) : 1;
-  if (v === 'fixed256') { W = 256; Hh = 160; return; }
+  const FIXED = { fixed256: [256, 160], '720p': [1280, 720], '1080p': [1920, 1080], '4k': [3840, 2160] };
+  if (FIXED[v]) { [W, Hh] = FIXED[v]; dpr = 1; return; }
   const f = v === 'retina' ? 1 : (Number(v) || 1);
   W = Math.max(16, Math.round(window.innerWidth * dpr * f));
   Hh = Math.max(16, Math.round(window.innerHeight * dpr * f));
