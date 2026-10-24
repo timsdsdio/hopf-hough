@@ -1,0 +1,440 @@
+{
+ "note": "Generated from em-sim-3/swarm/work/knownpath (kp_measure.mjs, rejoin_check.mjs). Software rendering (SwiftShader); costs relative only.",
+ "acc": [
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 32,
+   "df64": false,
+   "knownSweep": 0.00042306200068930266,
+   "knownView": 0.0004772110000344011,
+   "knownFar": 15261.167230169829
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 64,
+   "df64": false,
+   "knownSweep": 0.0002468398536661505,
+   "knownView": 0.00021074436140148617,
+   "knownFar": 12724.59577275037
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 128,
+   "df64": false,
+   "knownSweep": 0.00013640781789063175,
+   "knownView": 9.32432082810654e-05,
+   "knownFar": 2708.513134950863,
+   "ringSweep": 0.03838916593754077,
+   "ringView": 0.10064885402532532,
+   "ringFar": 7244.819426605206
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 256,
+   "df64": false,
+   "knownSweep": 9.411140430426428e-05,
+   "knownView": 0.00017198517475454519,
+   "knownFar": 24.989749950008523
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 512,
+   "df64": false,
+   "knownSweep": 7.600294988117612e-05,
+   "knownView": 7.596934063715423e-05,
+   "knownFar": 0.023541196874102513,
+   "ringSweep": 0.002189066521138239,
+   "ringView": 0.022007941991638504,
+   "ringFar": 11.071673564732363
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 1024,
+   "df64": false,
+   "knownSweep": 9.352804720628654e-05,
+   "knownView": 0.0002210543598040394,
+   "knownFar": 0.012143617003413022
+  },
+  {
+   "beta": 0.99,
+   "gamma": 7.1,
+   "M": 2048,
+   "df64": false,
+   "knownSweep": 7.831216124447164e-05,
+   "knownView": 6.518496728514711e-05,
+   "knownFar": 0.0009652352977472324,
+   "ringSweep": 0.00018033028361640998,
+   "ringView": 0.0018263521119322758,
+   "ringFar": 1.5600766104829529
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 32,
+   "df64": false,
+   "knownSweep": 0.01509742191256411,
+   "knownView": 0.00013796464262215178,
+   "knownFar": 5583476.304117121
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 64,
+   "df64": false,
+   "knownSweep": 0.007811302556599534,
+   "knownView": 0.00029224548331846804,
+   "knownFar": 570891.6591589312
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 128,
+   "df64": false,
+   "knownSweep": 0.0053011564530105046,
+   "knownView": 4.240899112783062e-05,
+   "knownFar": 18266.95291853424,
+   "ringSweep": 0.12682256111118598,
+   "ringView": 0.08425673174081294,
+   "ringFar": 1830136.0443361432
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 256,
+   "df64": false,
+   "knownSweep": 0.002052551479562515,
+   "knownView": 0.000101044750167735,
+   "knownFar": 4.543601224615341
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 512,
+   "df64": false,
+   "knownSweep": 0.0009252360610572567,
+   "knownView": 0.00013794595218560838,
+   "knownFar": 0.030670486874793495,
+   "ringSweep": 0.007716757247722091,
+   "ringView": 0.004431506006615758,
+   "ringFar": 235.6987831233355
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 1024,
+   "df64": false,
+   "knownSweep": 0.00044466756695583004,
+   "knownView": 0.000357800480919206,
+   "knownFar": 0.005077775754139303
+  },
+  {
+   "beta": 0.999,
+   "gamma": 22.4,
+   "M": 2048,
+   "df64": false,
+   "knownSweep": 0.0003529069823332353,
+   "knownView": 0.0001387624614253618,
+   "knownFar": 0.000268484445921561,
+   "ringSweep": 0.0005438588937292663,
+   "ringView": 0.000285234759719472,
+   "ringFar": 0.12193063176011251
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 32,
+   "df64": false,
+   "knownSweep": 0.47093311899777623,
+   "knownView": 0.00013486984606770683,
+   "knownFar": 55264006.86778609
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 64,
+   "df64": false,
+   "knownSweep": 0.11658663939669045,
+   "knownView": 0.00016238044050720832,
+   "knownFar": 10470859.666177927
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 128,
+   "df64": false,
+   "knownSweep": 0.12958699554692177,
+   "knownView": 6.212058909366477e-05,
+   "knownFar": 3965.635909937958,
+   "ringSweep": 0.3688364783220617,
+   "ringView": 0.06846911866600118,
+   "ringFar": 614379.5987146755
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 256,
+   "df64": false,
+   "knownSweep": 0.06251902266331896,
+   "knownView": 6.623955916192577e-05,
+   "knownFar": 2.700780930876202
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 512,
+   "df64": false,
+   "knownSweep": 0.03552953143462198,
+   "knownView": 0.0001798162521605963,
+   "knownFar": 0.011860515838075328,
+   "ringSweep": 0.0362487083256134,
+   "ringView": 0.0057138965801519295,
+   "ringFar": 158.06864713981489
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 1024,
+   "df64": false,
+   "knownSweep": 0.010121236118928623,
+   "knownView": 8.64191288871978e-05,
+   "knownFar": 0.0019978881432668708
+  },
+  {
+   "beta": 0.9999,
+   "gamma": 70.7,
+   "M": 2048,
+   "df64": false,
+   "knownSweep": 0.007163421965775477,
+   "knownView": 3.316886674156025e-05,
+   "knownFar": 0.0002894738489217001,
+   "ringSweep": 0.007036461966662829,
+   "ringView": 0.0003076858203429766,
+   "ringFar": 0.1633001231351727
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 32,
+   "df64": true,
+   "knownSweep": 15.026152836692145,
+   "knownView": 0.00022439051819758522,
+   "knownFar": 214102300.91554546
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 64,
+   "df64": true,
+   "knownSweep": 6.1417128857696435,
+   "knownView": 0.000293942870510059,
+   "knownFar": 11328665.365191605
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 128,
+   "df64": true,
+   "knownSweep": 3.0101688060523006,
+   "knownView": 0.00010688875610855098,
+   "knownFar": 7113989.523433894,
+   "ringSweep": 5.3630930948500435,
+   "ringView": 0.09311746664412268,
+   "ringFar": 611609002.0760745
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 256,
+   "df64": true,
+   "knownSweep": 2.280459686000506,
+   "knownView": 0.0002266490428235793,
+   "knownFar": 78.9402719888063
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 512,
+   "df64": true,
+   "knownSweep": 0.8731341405855886,
+   "knownView": 4.760678614091825e-05,
+   "knownFar": 0.16809992791675377,
+   "ringSweep": 1.0904750135643972,
+   "ringView": 0.0037826679617230297,
+   "ringFar": 43.57706565737669
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 1024,
+   "df64": true,
+   "knownSweep": 0.7461392455639639,
+   "knownView": 8.653270897394368e-05,
+   "knownFar": 0.005419242740081124
+  },
+  {
+   "beta": 0.99999,
+   "gamma": 223.6,
+   "M": 2048,
+   "df64": true,
+   "knownSweep": 0.23344614727036772,
+   "knownView": 7.975215129318651e-05,
+   "knownFar": 0.00012361420654038107,
+   "ringSweep": 0.2030792921966054,
+   "ringView": 6.645421293035596e-05,
+   "ringFar": 9.111542470685455
+  }
+ ],
+ "cost": {
+  "v5_ring_M128": 1394.875,
+  "v6_ring_M128": 6095.925000000047,
+  "v6_known_M128": 8965.449999999953,
+  "v6_known_M64": 8726.300000000047,
+  "v6_ring_M512": 6621.325000000186,
+  "v6_known_M512": 9506.925000000047,
+  "v6_ring_M2048": 7293.850000000093,
+  "cpuStep_ring_M128": 1.5050000000279398,
+  "cpuStep_known_M128": 3.5,
+  "cpuStep_ring_M512": 5.915000000037253,
+  "cpuStep_known_M512": 9.260000000009313,
+  "cpuStep_ring_M2048": 21.279999999981374,
+  "cpuStep_known_M2048": 38.72999999998137
+ },
+ "handoff": {
+  "rejoinA": 1102,
+  "rejoinB": 1102,
+  "rows": [
+   {
+    "k": 0,
+    "phase": "drag",
+    "knownVsRingRel": 1.3433873336173411e-06,
+    "knownVsRingMax": 4.812632601377299e-05,
+    "exactKnotsSrc0": 505,
+    "stepChange": null
+   },
+   {
+    "k": 250,
+    "phase": "drag",
+    "knownVsRingRel": 2.8980430693202597e-06,
+    "knownVsRingMax": 5.179449960990438e-05,
+    "exactKnotsSrc0": 209,
+    "stepChange": null
+   },
+   {
+    "k": 500,
+    "phase": "return",
+    "knownVsRingRel": 5.681239227610866e-07,
+    "knownVsRingMax": 8.128214393379221e-05,
+    "exactKnotsSrc0": 117,
+    "stepChange": null
+   },
+   {
+    "k": 750,
+    "phase": "return",
+    "knownVsRingRel": 6.562587218184869e-07,
+    "knownVsRingMax": 0.00010330181881477909,
+    "exactKnotsSrc0": 80,
+    "stepChange": null
+   },
+   {
+    "k": 1000,
+    "phase": "return",
+    "knownVsRingRel": 1.4921290996419689e-06,
+    "knownVsRingMax": 6.405512352669503e-05,
+    "exactKnotsSrc0": 61,
+    "stepChange": null
+   },
+   {
+    "k": 1102,
+    "phase": "rejoined",
+    "knownVsRingRel": 1.9301522181221543e-06,
+    "knownVsRingMax": 6.071589236291956e-05,
+    "exactKnotsSrc0": 55,
+    "stepChange": null
+   },
+   {
+    "k": 1103,
+    "phase": "rejoined",
+    "knownVsRingRel": 2.8624553082345796e-06,
+    "knownVsRingMax": 7.512317741096903e-05,
+    "exactKnotsSrc0": 55,
+    "stepChange": 0.0914208980311877
+   },
+   {
+    "k": 1104,
+    "phase": "rejoined",
+    "knownVsRingRel": 2.927103450444627e-06,
+    "knownVsRingMax": 6.502853264877903e-05,
+    "exactKnotsSrc0": 55,
+    "stepChange": 0.09201589802547758
+   },
+   {
+    "k": 1105,
+    "phase": "rejoined",
+    "knownVsRingRel": 3.079690267225685e-06,
+    "knownVsRingMax": 8.283931653204447e-05,
+    "exactKnotsSrc0": 57,
+    "stepChange": 0.0925324891394395
+   },
+   {
+    "k": 1250,
+    "phase": "rejoined",
+    "knownVsRingRel": 3.255568786202959e-06,
+    "knownVsRingMax": 2.9750808461031737e-05,
+    "exactKnotsSrc0": 263,
+    "stepChange": null
+   },
+   {
+    "k": 1500,
+    "phase": "rejoined",
+    "knownVsRingRel": 1.51767686725278e-06,
+    "knownVsRingMax": 6.174129930389736e-05,
+    "exactKnotsSrc0": 408,
+    "stepChange": null
+   },
+   {
+    "k": 1750,
+    "phase": "rejoined",
+    "knownVsRingRel": 1.9274227506084027e-06,
+    "knownVsRingMax": 5.056868666964208e-05,
+    "exactKnotsSrc0": 454,
+    "stepChange": null
+   },
+   {
+    "k": 2000,
+    "phase": "rejoined",
+    "knownVsRingRel": 5.849692260785866e-07,
+    "knownVsRingMax": 9.926597460123109e-05,
+    "exactKnotsSrc0": 475,
+    "stepChange": null
+   },
+   {
+    "k": 2250,
+    "phase": "rejoined",
+    "knownVsRingRel": 1.9788447926006445e-06,
+    "knownVsRingMax": 4.673280713685332e-05,
+    "exactKnotsSrc0": 486,
+    "stepChange": null
+   },
+   {
+    "k": 2500,
+    "phase": "rejoined",
+    "knownVsRingRel": 2.139586051776445e-06,
+    "knownVsRingMax": 0.00010283108122835928,
+    "exactKnotsSrc0": 493,
+    "stepChange": null
+   }
+  ],
+  "dragWinsAfter": [
+   [
+    4.929999999999885,
+    8.277324999999426
+   ]
+  ]
+ }
+}

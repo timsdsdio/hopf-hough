@@ -87,6 +87,12 @@
                         <button id="btn-kernel" class="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition" title="v6: certified segments, knot search + Newton, double-float root, validity indicator (preprint v6). v5: the original kernel (preprint v5).">
                             Kernel: v6 (accurate)
                         </button>
+                        <button id="btn-path" class="font-mono text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition" title="v6 kernel only. Known: preset sources use exact knots of their path and C2 quintic segments (fewer shells for the same accuracy near the source). Live: every source is resampled from the ring buffer (cubic segments), as before. A dragged source always uses the ring buffer for the part of its history spent off its path.">
+                            Path: known (exact)
+                        </button>
+                        <button id="btn-speed" class="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition" title="Simulation time per frame: N steps of the usual time step per frame (the history spacing is unchanged; the shells are resampled once per frame). Higher speeds also make dragging respond faster.">
+                            Speed: 2×
+                        </button>
                         <button id="btn-mask" class="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-500/20 text-slate-300 border border-slate-500/40 hover:bg-slate-500/30 transition" title="v6 kernel only: hatch pixels outside the stored history (red) or where the history is under-resolved (amber).">
                             Validity Mask: OFF
                         </button>
@@ -336,6 +342,9 @@
             velMode: 2, // 0: Raw Beta, 1: Arc-Length Norm Beta, 2: Proper 4-Vel u = gamma*beta + Spline-Consistent Direction
             useDiffusiveEulerian: false,
             kernel: 'v6', // 'v6' (accurate, preprint v6) or 'v5' (the original kernel)
+            simSpeed: 2,     // simulation steps (0.45 DT_STEP each) per animation frame; shells resampled on the last
+            knownPath: true, // v6: preset sources take exact knots and C2 quintic segments (live/dragged ones use the ring)
+            mTAuto: false,   // choose M_T from the view's reach and gamma (known-path accuracy table)
             showMask: false,
             stressTestMode: true,
             showWavePool: true,
@@ -349,6 +358,47 @@
             draggedSourceTarget: { x: 0, y: 0 },
             sources: []
         };
+
+        function swarmRawKinematics(partIdx, t) {
+            const goldenAngle = partIdx * 2.399963229728653;
+            const shellLayer = (partIdx % 4) / 3.0;
+            const rBase = 0.28 + 0.58 * shellLayer;
+            const ecc = 0.28 * Math.sin(partIdx * 1.7 + 0.5);
+            const orbitFreq = state.omega * (0.75 + 0.55 * (1.0 - shellLayer * 0.5));
+            const precessFreq = 0.22 * state.omega * ((partIdx % 2 === 0) ? 1.0 : -1.0);
+            const theta = orbitFreq * t + goldenAngle;
+            const phiTilt = precessFreq * t + goldenAngle * 0.5;
+            const aSemi = rBase;
+            const bSemi = rBase * Math.sqrt(Math.max(0.25, 1.0 - ecc * ecc));
+            const cosT = Math.cos(theta), sinT = Math.sin(theta);
+            const u = aSemi * cosT, v = bSemi * sinT;
+            const du = -aSemi * orbitFreq * sinT, dv = bSemi * orbitFreq * cosT;
+            const d2u = -aSemi * orbitFreq * orbitFreq * cosT, d2v = -bSemi * orbitFreq * orbitFreq * sinT;
+            const cosP = Math.cos(phiTilt), sinP = Math.sin(phiTilt);
+            const x = u * cosP - v * sinP, y = u * sinP + v * cosP;
+            const vRx = du * cosP - dv * sinP, vRy = du * sinP + dv * cosP;   // body-frame velocity, rotated
+            return {
+                x, y,
+                vx: vRx - precessFreq * y, vy: vRy + precessFreq * x,
+                ax: (d2u * cosP - d2v * sinP) - 2.0 * precessFreq * vRy - precessFreq * precessFreq * x,
+                ay: (d2u * sinP + d2v * cosP) + 2.0 * precessFreq * vRx - precessFreq * precessFreq * y,
+            };
+        }
+        // Constant time-scale factor that keeps the particle's peak speed within beta * c (cached).
+        const swarmScaleVal = new Float64Array(MAX_PARTICLES).fill(NaN);
+        const swarmScaleBeta = new Float64Array(MAX_PARTICLES).fill(NaN);
+        const swarmScaleOmega = new Float64Array(MAX_PARTICLES).fill(NaN);
+        function swarmTimeScale(partIdx, betaVal) {
+            if (swarmScaleBeta[partIdx] === betaVal && swarmScaleOmega[partIdx] === state.omega) return swarmScaleVal[partIdx];
+            const shellLayer = (partIdx % 4) / 3.0;
+            const wOrb = state.omega * (0.75 + 0.55 * (1.0 - shellLayer * 0.5)), wPre = 0.22 * state.omega;
+            const T = (2 * Math.PI) / Math.max(1e-6, Math.min(Math.abs(wOrb), Math.abs(wPre)));
+            let vmax = 0;
+            for (let k = 0; k < 4096; k++) { const r = swarmRawKinematics(partIdx, (k / 4096) * 2 * T); vmax = Math.max(vmax, Math.hypot(r.vx, r.vy)); }
+            const sc = vmax > betaVal * C_LIGHT ? (betaVal * C_LIGHT) / vmax : 1.0;
+            swarmScaleVal[partIdx] = sc; swarmScaleBeta[partIdx] = betaVal; swarmScaleOmega[partIdx] = state.omega;
+            return sc;
+        }
 
         function getExactTrajectoryKinematics(partIdx, totalParts, t, betaOverride, motionOverride) {
             const betaVal = betaOverride !== undefined ? betaOverride : state.beta;
@@ -391,49 +441,20 @@
                 };
             } else if (modeVal === 'swarm') {
                 // Multi-body Keplerian / Atomic Rosette Swarm:
-                // Each particle orbits on a golden-ratio tilted rosette / precessing ellipse
-                const goldenAngle = partIdx * 2.399963229728653;
-                const shellLayer = (partIdx % 4) / 3.0;
-                const rBase = 0.28 + 0.58 * shellLayer;
-                const ecc = 0.28 * Math.sin(partIdx * 1.7 + 0.5);
-                const orbitFreq = state.omega * (0.75 + 0.55 * (1.0 - shellLayer * 0.5));
-                const precessFreq = 0.22 * state.omega * ((partIdx % 2 === 0) ? 1.0 : -1.0);
-
-                const theta = orbitFreq * t + goldenAngle;
-                const phiTilt = precessFreq * t + goldenAngle * 0.5;
-
-                // Unrotated ellipse in local orbital plane (u, v)
-                const aSemi = rBase;
-                const bSemi = rBase * Math.sqrt(Math.max(0.25, 1.0 - ecc * ecc));
-                const cosT = Math.cos(theta), sinT = Math.sin(theta);
-                const u = aSemi * cosT;
-                const v = bSemi * sinT;
-                const du = -aSemi * orbitFreq * sinT;
-                const dv =  bSemi * orbitFreq * cosT;
-                const d2u = -aSemi * orbitFreq * orbitFreq * cosT;
-                const d2v = -bSemi * orbitFreq * orbitFreq * sinT;
-
-                const cosP = Math.cos(phiTilt), sinP = Math.sin(phiTilt);
-                const x = u * cosP - v * sinP;
-                const y = u * sinP + v * cosP;
-
-                const vxRaw = (du * cosP - dv * sinP) - precessFreq * y;
-                const vyRaw = (du * sinP + dv * cosP) + precessFreq * x;
-                const axRaw = (d2u * cosP - d2v * sinP) - 2.0 * precessFreq * vyRaw - precessFreq * precessFreq * x;
-                const ayRaw = (d2u * sinP + d2v * cosP) + 2.0 * precessFreq * vxRaw - precessFreq * precessFreq * y;
-
-                // Scale speed smoothly so max swarm speed respects betaVal
-                const speedRaw = Math.hypot(vxRaw, vyRaw);
-                const maxAllowedV = betaVal * C_LIGHT;
-                const vScale = speedRaw > maxAllowedV ? (maxAllowedV / speedRaw) : 1.0;
-
+                // Each particle orbits on a golden-ratio tilted rosette / precessing ellipse.
+                // Kinematically consistent (fixed in the known-path build): the lab acceleration is
+                // R r'' + 2 Omega x (R r') + Omega x (Omega x r) (the frame rotation counted once), and the speed
+                // cap is a constant time-scale factor (velocity and position scaled together) instead of an
+                // instantaneous rescale of the velocity alone.
+                const sc = swarmTimeScale(partIdx, betaVal);
+                const r = swarmRawKinematics(partIdx, sc * t);
                 return {
-                    x,
-                    y,
-                    bx: (vxRaw * vScale) / C_LIGHT,
-                    by: (vyRaw * vScale) / C_LIGHT,
-                    bdx: (axRaw * vScale) / (C_LIGHT * C_LIGHT),
-                    bdy: (ayRaw * vScale) / (C_LIGHT * C_LIGHT),
+                    x: r.x,
+                    y: r.y,
+                    bx: (sc * r.vx) / C_LIGHT,
+                    by: (sc * r.vy) / C_LIGHT,
+                    bdx: (sc * sc * r.ax) / (C_LIGHT * C_LIGHT),
+                    bdy: (sc * sc * r.ay) / (C_LIGHT * C_LIGHT),
                     charge
                 };
             } else {
@@ -510,6 +531,10 @@
                 emitR: new Float32Array(MAX_M_T),
                 emitXlo: new Float32Array(MAX_M_T),
                 emitYlo: new Float32Array(MAX_M_T),
+                emitJx: new Float32Array(MAX_M_T),      // known path: d(acc)/dR at the knot
+                emitJy: new Float32Array(MAX_M_T),
+                emitExact: new Float32Array(MAX_M_T),   // 1 = exact sample of the known path, 0 = from the ring buffer
+                dragWins: [],                           // [t0, t1] intervals when the worldline left its known path
                 emitX64: new Float64Array(MAX_M_T),
                 emitY64: new Float64Array(MAX_M_T),
                 emitUx64: new Float64Array(MAX_M_T),
@@ -547,7 +572,10 @@
         // Fixed CPU Ring Buffer Sampler:
         // Uses 2-point Kinematical Cubic Hermite interpolation on [k1, k2] for position (with h11 * ty2 fixed!)
         // + 4-tap Catmull-Rom with Arc-Length Speed Preservation for velocity.
-        function sampleFromRingBuffer(src, stepsBackFloat) {
+        // ringDt: the time between ring samples (the live loop records every 0.45 DT_STEP; the reseed writes DT_STEP).
+        // The Hermite tangents must use it: with a fixed C_LIGHT * DT_STEP they came out 2.2x too long in the live
+        // loop, which put ~0.3% into every live-resampled history.
+        function sampleFromRingBuffer(src, stepsBackFloat, ringDt) {
             const sClamped = Math.max(0.0, Math.min(RING_SIZE - 3.001, stepsBackFloat));
             const k1 = Math.floor(sClamped);
             const k0 = Math.max(0, k1 - 1);
@@ -563,7 +591,7 @@
             const i2 = (src.ringHead - k2 + RING_SIZE) % RING_SIZE;
             const i3 = (src.ringHead - k3 + RING_SIZE) % RING_SIZE;
 
-            const stepScale = C_LIGHT * DT_STEP;
+            const stepScale = C_LIGHT * (ringDt || DT_STEP);
             const tx1 = -src.ringBx[i1] * stepScale;
             const ty1 = -src.ringBy[i1] * stepScale;
             const tx2 = -src.ringBx[i2] * stepScale;
@@ -619,6 +647,7 @@
         // gridMode: 'compactified' (default), 'uniform', 'log' (exponential adaptive), or 'power2' (quadratic adaptive)
         function populateShellsFromRingBuffer(src, M, velMode, dt, uniformMaxR, gridMode) {
             lastPopulateDt = dt;
+            src.emitExact.fill(0, 0, M);
             const v6 = state.kernel === 'v6';
             const dTheta = Math.PI / M;
             const orbitLambda = (2.0 * Math.PI * C_LIGHT) / Math.max(0.5, state.omega);
@@ -658,9 +687,9 @@
                 let sample, sample64;
                 if (!v6 && filterRatio > 0.25 && gMode === 'compactified') {   // Nyquist prefilter: v5 only (v6 flags instead)
                     const dSteps = Math.min((dR / C_LIGHT) / dt, (2.0 * Math.PI / state.omega) / dt);
-                    const s0 = sampleFromRingBuffer(src, stepsBackCenter - 0.35 * dSteps);
-                    const s1 = sampleFromRingBuffer(src, stepsBackCenter);
-                    const s2 = sampleFromRingBuffer(src, stepsBackCenter + 0.35 * dSteps);
+                    const s0 = sampleFromRingBuffer(src, stepsBackCenter - 0.35 * dSteps, dt);
+                    const s1 = sampleFromRingBuffer(src, stepsBackCenter, dt);
+                    const s2 = sampleFromRingBuffer(src, stepsBackCenter + 0.35 * dSteps, dt);
                     const wNyq = Math.exp(-Math.pow(filterRatio, 4.0));
 
                     const avgBx = 0.25 * s0.bx + 0.5 * s1.bx + 0.25 * s2.bx;
@@ -677,10 +706,10 @@
                         bdx: (0.25 * s0.bdx + 0.5 * s1.bdx + 0.25 * s2.bdx) * wNyq,
                         bdy: (0.25 * s0.bdy + 0.5 * s1.bdy + 0.25 * s2.bdy) * wNyq
                     };
-                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64);
+                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64, dt);
                 } else {
-                    sample = sampleFromRingBuffer(src, stepsBackCenter);
-                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64);
+                    sample = sampleFromRingBuffer(src, stepsBackCenter, dt);
+                    sample64 = sampleFromRingBuffer(src, stepsBackCenter64, dt);
                 }
 
                 const packedV = packVelocityForStorage(sample.bx, sample.by, velMode);
@@ -738,6 +767,93 @@
             }
         }
 
+        // ---------------- known-path mode (v6) ----------------
+        // A preset source's worldline is known in closed form, so each shell can be an exact sample of it:
+        // position, beta, acceleration and the jerk (for the C2 quintic segments), at the shell's own
+        // retarded time, instead of a resample of the ring buffer. Knots whose retarded time falls inside
+        // an interval when the source was dragged off its path (dragWins), or that the chord clamp had to
+        // move, come from the ring buffer instead and are flagged non-exact; the shader uses the cubic
+        // segment wherever either end of a segment is non-exact.
+        function knownPathLive(betaOverride, motionOverride, uniformMaxR, gridMode) {
+            return state.knownPath && state.kernel === 'v6' && !!glProgV6 && !state.useDiffusiveEulerian &&
+                betaOverride === undefined && motionOverride === undefined && !uniformMaxR && (!gridMode || gridMode === 'compactified');
+        }
+        function inDragWindow(src, tRet, pad) {
+            for (const w of src.dragWins) if (tRet >= w[0] - pad && tRet <= w[1] + pad) return true;
+            return false;
+        }
+        function populateKnownPathShells(src, idx, totalParts, M, velMode, dt, betaOverride, motionOverride) {
+            lastPopulateDt = dt;
+            const t = state.time, dTheta = Math.PI / M;
+            const pad = 3 * dt;
+            const rReach = state.scaleL * Math.tan(0.5 * (M - 0.5) * dTheta);
+            src.dragWins = src.dragWins.filter((w) => w[1] >= t - rReach / C_LIGHT - pad);
+            const hJ = 1e-4;
+            for (let m = 0; m < M; m++) {
+                const th = (m + 0.5) * dTheta;
+                const rShell64 = state.scaleL * Math.tan(0.5 * th);
+                const rShellF32 = f32(f32(state.scaleL) * f32(Math.tan(f32(0.5 * th))));
+                const tRet = t - rShellF32 / C_LIGHT;
+                let k, k64, exact = !inDragWindow(src, tRet, pad);
+                if (exact) {
+                    k = getExactTrajectoryKinematics(idx, totalParts, tRet, betaOverride, motionOverride);
+                    // jerk J = d(acc)/dR = -(1/c) d(acc)/dt (R = c (t - t_ret))
+                    const kp = getExactTrajectoryKinematics(idx, totalParts, tRet + hJ, betaOverride, motionOverride);
+                    const km = getExactTrajectoryKinematics(idx, totalParts, tRet - hJ, betaOverride, motionOverride);
+                    src.emitJx[m] = f32(-(kp.bdx - km.bdx) / (2 * hJ) / C_LIGHT);
+                    src.emitJy[m] = f32(-(kp.bdy - km.bdy) / (2 * hJ) / C_LIGHT);
+                    // the float64 shell radius differs from the float32 one by ~1e-7 R: Taylor step to it
+                    const dtq = (rShellF32 - rShell64) / C_LIGHT, ax = k.bdx * C_LIGHT, ay = k.bdy * C_LIGHT;
+                    k64 = { x: k.x + C_LIGHT * (k.bx + 0.5 * ax * dtq) * dtq, y: k.y + C_LIGHT * (k.by + 0.5 * ay * dtq) * dtq,
+                            bx: k.bx + ax * dtq, by: k.by + ay * dtq, bdx: k.bdx, bdy: k.bdy };
+                } else {
+                    k = sampleFromRingBuffer(src, (rShellF32 / C_LIGHT) / dt, dt);
+                    k64 = sampleFromRingBuffer(src, (rShell64 / C_LIGHT) / dt, dt);
+                    src.emitJx[m] = 0; src.emitJy[m] = 0;
+                }
+                const pv = packVelocityForStorage(k.bx, k.by, velMode);
+                const pv64 = packVelocityForStorage(k64.bx, k64.by, velMode);
+                src.emitX[m] = f32(k.x); src.emitY[m] = f32(k.y);
+                src.emitXlo[m] = f32(k.x - src.emitX[m]); src.emitYlo[m] = f32(k.y - src.emitY[m]);
+                src.emitUx[m] = pv.ux; src.emitUy[m] = pv.uy;
+                src.emitBdx[m] = f32(k.bdx); src.emitBdy[m] = f32(k.bdy);
+                src.emitR[m] = rShellF32;
+                src.emitX64[m] = k64.x; src.emitY64[m] = k64.y;
+                src.emitUx64[m] = pv64.ux64; src.emitUy64[m] = pv64.uy64;
+                src.emitBdx64[m] = k64.bdx; src.emitBdy64[m] = k64.bdy;
+                src.emitR64[m] = rShell64;
+                src.emitExact[m] = exact ? 1 : 0;
+            }
+            // Same double-precision chord clamp as the ring path. A knot it moves is no longer an exact
+            // sample (e.g. the 'uniform' preset's jump back every 4.4 time units), nor is its neighbour.
+            for (let m = 0; m < M - 1; m++) {
+                const dRc = Math.max(1e-12, src.emitR[m + 1] - src.emitR[m]);
+                const x0 = src.emitX[m] + src.emitXlo[m], y0 = src.emitY[m] + src.emitYlo[m];
+                const dx = src.emitX[m + 1] + src.emitXlo[m + 1] - x0, dy = src.emitY[m + 1] + src.emitYlo[m + 1] - y0;
+                const chordSpeed = Math.hypot(dx, dy) / dRc;
+                if (chordSpeed > V6_BETA_MAX) {
+                    const shrink = V6_BETA_MAX / chordSpeed;
+                    const nx = x0 + dx * shrink, ny = y0 + dy * shrink;
+                    src.emitX[m + 1] = f32(nx); src.emitXlo[m + 1] = f32(nx - src.emitX[m + 1]);
+                    src.emitY[m + 1] = f32(ny); src.emitYlo[m + 1] = f32(ny - src.emitY[m + 1]);
+                    src.emitExact[m] = 0; src.emitExact[m + 1] = 0;
+                }
+            }
+        }
+
+        // M_T from the view's reach (largest observer-to-source distance) and gamma, for known-path
+        // segments: the smallest shell count at which the quintic is at least as accurate as the M_T = 2048
+        // ring/cubic path (measured in swarm/work/knownpath of em-sim-3: within the default view, R < 6,
+        // M_T = 128 suffices up to gamma ~ 70; at 6 < R < 20 it takes 512, about 4x fewer; gamma ~ 220 needs 512).
+        function autoShellCount() {
+            const aspect = bulkCanvas.clientWidth / Math.max(1, bulkCanvas.clientHeight);
+            const reach = Math.hypot(1.45 * aspect, 1.45) + 0.9;
+            if (reach <= 6) return state.gamma <= 100 ? 128 : 512;
+            if (reach <= 20) return 512;
+            return 2048;
+        }
+        function kBinFor(M) { return Math.round(Math.log2(M)) + 2; }
+
         function seedExactRetardedHistory(src, idx, totalParts, t0, betaOverride, motionOverride, mTOverride, velModeOverride, uniformMaxR, gridMode) {
             const M = mTOverride || state.mT;
             const vMode = velModeOverride !== undefined ? velModeOverride : state.velMode;
@@ -760,7 +876,9 @@
                 src.ringBdy[rIdx] = kin.bdy;
             }
 
+            src.dragWins = [];
             populateShellsFromRingBuffer(src, M, vMode, DT_STEP, uniformMaxR, gridMode);
+            if (knownPathLive(betaOverride, motionOverride, uniformMaxR, gridMode)) populateKnownPathShells(src, idx, totalParts, M, vMode, DT_STEP);
         }
 
         function initSources() {
@@ -1227,10 +1345,13 @@
         let glUniforms = {};
         // Two kernels: v5 = the original shader below, v6 = the production shader (preprint v6).
         let glProgV5 = null, glUniformsV5 = {}, glProgV6 = null, glUniformsV6 = {}, texPosLo = null;
+        let glProgV6K = null, glUniformsV6K = {};   // v6 with KNOWN_PATH compiled in (quintic segments); used only when exact knots are uploaded
         let lastPopulateDt = 0.00675;
         const V6_BETA_MAX = 0.9999995;
         const V6_NEWTON = 12;
         const texPosLoData = new Float32Array(MAX_M_T * MAX_PARTICLES * 4);
+        const texJerkData = new Float32Array(MAX_M_T * MAX_PARTICLES * 4);
+        let texJerk = null;
         let texPosVel = null;
         let texAccChg = null;
         let texQueryCoords = null;
@@ -1247,6 +1368,15 @@
             glProg = v6 ? glProgV6 : glProgV5;
             glUniforms = v6 ? glUniformsV6 : glUniformsV5;
         }
+        // After an upload: the v6 kernel runs as its known-path variant when the textures hold exact knots,
+        // otherwise as the plain v6 program (so the ring path costs and computes exactly what it did before).
+        function pickV6Variant() {
+            if (state.kernel !== 'v6' || !glProgV6) return false;
+            const want = knownPathOnGPU && glProgV6K ? glProgV6K : glProgV6;
+            if (glProg === want) return false;
+            glProg = want; glUniforms = want === glProgV6K ? glUniformsV6K : glUniformsV6;
+            return true;
+        }
 
         // Uniforms the v6 kernel needs on every draw (no-ops for v5).
         // In the rendered view the v6 shader takes a cheaper display path (u_fastRender): float32 knot bisection
@@ -1255,14 +1385,18 @@
         // About 3x fewer operations per pixel; at most 3/255 per channel from the full solve. Readback (suite,
         // probe, exports) always takes the full path, bit-identical to the paper's kernel.
         const V6_RENDER_NEWTON = 4;
+        let knownPathOnGPU = false;
         function applyKernelUniforms(readback) {
-            if (glProg !== glProgV6) return;
+            if (glProg !== glProgV6 && glProg !== glProgV6K) return;
             gl.uniform1i(glUniforms.newton, readback || state.numParticles <= 4 ? V6_NEWTON : V6_RENDER_NEWTON);
             gl.uniform1i(glUniforms.showMask, state.showMask ? 1 : 0);
             gl.uniform1i(glUniforms.fastRender, readback ? 0 : 1);
             gl.uniform1f(glUniforms.ringReach, C_LIGHT * lastPopulateDt * (RING_SIZE - 4));
             gl.activeTexture(gl.TEXTURE4);
             gl.bindTexture(gl.TEXTURE_2D, texPosLo);
+            gl.uniform1i(glUniforms.knownPath, knownPathOnGPU ? 1 : 0);
+            gl.activeTexture(gl.TEXTURE5);
+            gl.bindTexture(gl.TEXTURE_2D, texJerk);
         }
 
         function initWebGL2() {
@@ -1702,7 +1836,11 @@ uniform float u_maskThreshold;
 uniform int u_taperOn;              // Nyquist prefilter/taper active on the CPU side
 uniform float u_omega;              // its reference angular frequency
 uniform float u_ringReach;          // depth of the stored history, c·dt·(ringSize − 4)
-uniform int u_fastRender;           // 1: cheaper root solve for on-screen rendering (never used for readback)
+uniform int u_fastRender;
+#ifdef KNOWN_PATH
+uniform sampler2D u_texJerk;        // known-path knots: jx, jy (d acc / dR), exact flag (1 = exact sample of a known path), -
+uniform int u_knownPath;            // 1: segments whose two knots are exact use the C2 quintic (degree-8 certificate)
+#endif           // 1: cheaper root solve for on-screen rendering (never used for readback)
 
 const float PI = 3.14159265359;
 
@@ -1824,6 +1962,29 @@ float alphaSharp(vec2 v, vec2 m0, vec2 m1, float bm) {
   return al;
 }
 
+#ifdef KNOWN_PATH
+// Known-path segments: C2 quintic Hermite (z, z' = -beta, z'' = stored acceleration at both knots).
+// Its hodograph is quartic, so |z'|^2 is degree 8 in Bernstein form: c_k = sum_{i+j=k} w_ij Q_i.Q_j.
+// With Q(alpha) = vSec + alpha (Q - vSec), each c_k is quadratic in alpha; take the first alpha in (0, 1]
+// where some c_k reaches betaMax^2 (c_0 and c_8 are the endpoint speeds, always inside). A limited
+// segment (alpha < 1) no longer matches the endpoint derivatives: it is C0 there, as the cubic is.
+float alphaQuint(vec2 v, vec2 D0, vec2 D1, vec2 D2, vec2 D3, vec2 D4, float bm) {
+  float pp = dot(v, v) - bm * bm;
+  if (pp >= 0.0) return 0.0;
+  float e0 = dot(v, D0), e1 = dot(v, D1), e2 = dot(v, D2), e3 = dot(v, D3), e4 = dot(v, D4);
+  float al = 1.0;
+  al = firstRoot(dot(D0, D1), e0 + e1, pp, al);
+  al = firstRoot((12.0 * dot(D0, D2) + 16.0 * dot(D1, D1)) / 28.0, (12.0 * (e0 + e2) + 32.0 * e1) / 28.0, pp, al);
+  al = firstRoot((8.0 * dot(D0, D3) + 48.0 * dot(D1, D2)) / 56.0, (8.0 * (e0 + e3) + 48.0 * (e1 + e2)) / 56.0, pp, al);
+  al = firstRoot((2.0 * dot(D0, D4) + 32.0 * dot(D1, D3) + 36.0 * dot(D2, D2)) / 70.0, (2.0 * (e0 + e4) + 32.0 * (e1 + e3) + 72.0 * e2) / 70.0, pp, al);
+  al = firstRoot((8.0 * dot(D1, D4) + 48.0 * dot(D2, D3)) / 56.0, (8.0 * (e1 + e4) + 48.0 * (e2 + e3)) / 56.0, pp, al);
+  al = firstRoot((12.0 * dot(D2, D4) + 16.0 * dot(D3, D3)) / 28.0, (12.0 * (e2 + e4) + 32.0 * e3) / 28.0, pp, al);
+  al = firstRoot(dot(D3, D4), e3 + e4, pp, al);
+  return al;
+}
+
+#endif
+
 struct Seg {
   vec2 p1hi; vec2 p1lo;   // knot m1 position
   vec2 dPosSub;           // z(s) - z(m1)
@@ -1841,6 +2002,10 @@ struct Seg {
 struct SegC {
   vec2 p1hi; vec2 p1lo; float r1; float dR; bool hasNext;
   vec2 dChord; vec2 v0; vec2 v1; vec2 v2;
+#ifdef KNOWN_PATH
+  vec2 v3; vec2 v4; vec2 j1; vec2 j2;   // known-path quintic: hodograph control points 3-4, knot jerks
+  bool exact; bool quint; bool uHerm;  // both knots exact; quintic in use; Hermite |u| in use
+#endif
   vec2 acc0; vec2 acc1; vec2 acc2; vec2 acc3;
   vec2 u0; vec2 u1; vec2 u2; vec2 u3;
   float chg;
@@ -1888,6 +2053,34 @@ SegC segCoef(int s, int m1In) {
   c.v0 = oma * vSec - alpha * b1;
   c.v1 = vSec + alpha * (v1Raw - vSec);
   c.v2 = oma * vSec - alpha * b2;
+#ifdef KNOWN_PATH
+  c.v3 = vec2(0.0); c.v4 = vec2(0.0); c.j1 = vec2(0.0); c.j2 = vec2(0.0);
+  c.exact = false; c.quint = false; c.uHerm = false;
+  if (u_knownPath == 1) {
+    vec4 jk1 = texelFetch(u_texJerk, ivec2(m1, s), 0);
+    vec4 jk2 = texelFetch(u_texJerk, ivec2(m2, s), 0);
+    c.exact = jk1.z > 0.5 && jk2.z > 0.5;
+    if (c.exact && c.hasNext) {
+      c.quint = true;
+      vec2 Q0 = -b1, Q4 = -b2;
+      vec2 Q1 = Q0 + (0.25 * dR) * k1.acc;
+      vec2 Q3 = Q4 - (0.25 * dR) * k2.acc;
+      vec2 Q2 = 5.0 * vSec - Q0 - Q1 - Q3 - Q4;
+      float aq = alphaQuint(vSec, Q0 - vSec, Q1 - vSec, Q2 - vSec, Q3 - vSec, Q4 - vSec, maxSub);
+      c.v0 = vSec + aq * (Q0 - vSec); c.v1 = vSec + aq * (Q1 - vSec); c.v2 = vSec + aq * (Q2 - vSec);
+      c.v3 = vSec + aq * (Q3 - vSec); c.v4 = vSec + aq * (Q4 - vSec);
+      c.j1 = jk1.xy; c.j2 = jk2.xy;
+      // Hermite |u| only where the segment is resolved (bend term of the validity indicator < 1) and
+      // unlimited: on coarse segments it overshoots (e.g. 0.44 -> 1.1 at beta 0.99, M = 128), so fall
+      // back to linear |u| there.
+      float n1 = length(k1.u), n2 = length(k2.u);
+      float um = 0.5 * (n1 + n2), bm = um / sqrt(1.0 + um * um);
+      float ap = max(abs(b1.x * k1.acc.y - b1.y * k1.acc.x) / max(length(b1), 1e-7),
+                     abs(b2.x * k2.acc.y - b2.y * k2.acc.x) / max(length(b2), 1e-7));
+      c.uHerm = aq >= 1.0 && dR * sqrt(1.0 + um * um) * ap / max(0.04, bm * bm) < 1.0;
+    }
+  }
+#endif
   return c;
 }
 
@@ -1907,12 +2100,27 @@ Seg evalSeg(SegC c, float tIn) {
 
   float s2 = sRad * sRad;
   float s3 = s2 * sRad;
+  float oms = 1.0 - sRad;
+#ifdef KNOWN_PATH
+  if (!c.quint) {
+#endif
   float h10 = s3 - 2.0 * s2 + sRad;
   float h01 = -2.0 * s3 + 3.0 * s2;
   float h11 = s3 - s2;
   g.dPosSub = h01 * dChord + h10 * (v0 * dR) + h11 * (v2 * dR);
-  float oms = 1.0 - sRad;
   g.dzdR = (oms * oms) * v0 + (2.0 * sRad * oms) * v1 + s2 * v2;
+#ifdef KNOWN_PATH
+  } else {
+    // Bezier position control points relative to z1: P_k = dR/5 sum_{j<k} Q_j; P_5 = chord (exact).
+    float o2 = oms * oms, o3 = o2 * oms, o4 = o3 * oms, t4 = s2 * s2;
+    vec2 P1 = (0.2 * dR) * c.v0;
+    vec2 P2 = P1 + (0.2 * dR) * c.v1;
+    vec2 P3 = P2 + (0.2 * dR) * c.v2;
+    vec2 P4 = dChord - (0.2 * dR) * c.v4;
+    g.dPosSub = (5.0 * o4 * sRad) * P1 + (10.0 * o3 * s2) * P2 + (10.0 * o2 * s3) * P3 + (5.0 * oms * t4) * P4 + (t4 * sRad) * dChord;
+    g.dzdR = o4 * c.v0 + (4.0 * o3 * sRad) * c.v1 + (6.0 * o2 * s2) * c.v2 + (4.0 * oms * s3) * c.v3 + t4 * c.v4;
+  }
+#endif
   vec2 splineVel = -g.dzdR;
   float splineVelMag = length(splineVel);
 
@@ -1920,12 +2128,33 @@ Seg evalSeg(SegC c, float tIn) {
   float w1 = 1.5 * t3 - 2.5 * t2 + 1.0;
   float w2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
   float w3 = 0.5 * t3 - 0.5 * t2;
+#ifndef KNOWN_PATH
   g.acc = c.acc0 * w0 + c.acc1 * w1 + c.acc2 * w2 + c.acc3 * w3;
+#else
+  float uHermVal = -1.0;
+  if (!c.quint) g.acc = c.acc0 * w0 + c.acc1 * w1 + c.acc2 * w2 + c.acc3 * w3;
+  else {
+    float H00 = 2.0 * t3 - 3.0 * t2 + 1.0, H10 = t3 - 2.0 * t2 + t, H01 = -2.0 * t3 + 3.0 * t2, H11 = t3 - t2;
+    g.acc = H00 * c.acc1 + H10 * (dR * c.j1) + H01 * c.acc2 + H11 * (dR * c.j2);
+    if (c.uHerm) {
+      // d|u|/dR = -gamma^3 (u_hat . acc)
+      float n1 = length(c.u1), n2 = length(c.u2);
+      float q1 = 1.0 + n1 * n1, q2 = 1.0 + n2 * n2;
+      float d1 = -(q1 * sqrt(q1)) * dot(c.u1, c.acc1) / max(n1, 1e-20);
+      float d2 = -(q2 * sqrt(q2)) * dot(c.u2, c.acc2) / max(n2, 1e-20);
+      uHermVal = max(0.0, H00 * n1 + H10 * (dR * d1) + H01 * n2 + H11 * (dR * d2));
+    }
+  }
+#endif
   g.chg = c.chg;
   g.duRel = length(c.u2 - c.u1) / (0.5 * (length(c.u1) + length(c.u2)) + 0.1);
 
   if (u_velMode == 2) {
+#ifdef KNOWN_PATH
+    float uTarget = uHermVal >= 0.0 ? uHermVal : mix(length(c.u1), length(c.u2), t);
+#else
     float uTarget = mix(length(c.u1), length(c.u2), t);
+#endif
     g.bHat = splineVelMag > 1e-7 ? splineVel / splineVelMag : vec2(1.0, 0.0);
     float uSq = uTarget * uTarget;
     g.bMag = uTarget / sqrt(1.0 + uSq);
@@ -2156,7 +2385,11 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
       if (g.dR / (0.5 * lambda) > 0.25) q = max(q, 2.0);
     }
     // Beyond the ring buffer the shells repeat its oldest sample: not a valid history.
+#ifdef KNOWN_PATH
+    if (u_ringReach > 0.0 && !cS.exact && g.r1 + g.dR > u_ringReach) inDomain = false;
+#else
     if (u_ringReach > 0.0 && g.r1 + g.dR > u_ringReach) inDomain = false;
+#endif
     if (!inDomain) o.quality = -1.0;
     else if (o.quality >= 0.0) o.quality = max(o.quality, q);
     if (s == 0) { o.emit0 = (g.p1hi + g.p1lo) + g.dPosSub; o.dbg = vec4(g.r1, g.dRSub, kappa, g.bMag); }
@@ -2270,39 +2503,54 @@ void main() {
 }
 `;
             glProgV5 = glProg; glUniformsV5 = glUniforms;
-            glProgV6 = gl.createProgram();
-            gl.attachShader(glProgV6, compileShader(gl.VERTEX_SHADER, vsSource));
-            gl.attachShader(glProgV6, compileShader(gl.FRAGMENT_SHADER, fsSourceV6));
-            gl.bindAttribLocation(glProgV6, posLoc, 'a_pos');
-            gl.linkProgram(glProgV6);
-            if (!gl.getProgramParameter(glProgV6, gl.LINK_STATUS)) {
-                console.error('v6 kernel failed to link; falling back to v5:', gl.getProgramInfoLog(glProgV6));
+            function buildV6(src) {
+                const prog = gl.createProgram(), uni = {};
+                gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, vsSource));
+                gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, src));
+                gl.bindAttribLocation(prog, posLoc, 'a_pos');
+                gl.linkProgram(prog);
+                if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+                    console.error('v6 kernel failed to link:', gl.getProgramInfoLog(prog));
+                    return null;
+                }
+                const U = (n) => gl.getUniformLocation(prog, n);
+                for (const k of Object.keys(glUniformsV5)) uni[k] = U('u_' + k);
+                for (const n of ['texPosLo', 'newton', 'readbackLayout', 'certMode', 'rootMode', 'precision', 'betaMax', 'c', 'one', 'zero',
+                                 'viewCenter', 'viewHalfHeight', 'gain', 'showMask', 'maskThreshold', 'taperOn', 'ringReach', 'fastRender', 'texJerk', 'knownPath']) uni[n] = U('u_' + n);
+                gl.useProgram(prog);
+                gl.uniform1i(uni.texPosVel, 0);
+                gl.uniform1i(uni.texAccChg, 1);
+                gl.uniform1i(uni.texQueryCoords, 2);
+                gl.uniform1i(uni.texPosLo, 4);
+                gl.uniform1i(uni.texJerk, 5);
+                gl.uniform1i(uni.knownPath, 0);
+                gl.uniform1i(uni.certMode, 1);
+                gl.uniform1i(uni.rootMode, 1);
+                gl.uniform1i(uni.precision, 1);
+                gl.uniform1i(uni.readbackLayout, 0);
+                gl.uniform1i(uni.newton, V6_NEWTON);
+                gl.uniform1f(uni.betaMax, V6_BETA_MAX);
+                gl.uniform1f(uni.c, C_LIGHT);
+                gl.uniform1f(uni.one, 1.0);
+                gl.uniform1ui(uni.zero, 0);
+                gl.uniform2f(uni.viewCenter, 0.0, 0.0);
+                gl.uniform1f(uni.viewHalfHeight, 1.45);
+                gl.uniform1f(uni.gain, 1.0);
+                gl.uniform1f(uni.maskThreshold, 1.5);
+                gl.uniform1i(uni.taperOn, 0);
+                return { prog, uni };
+            }
+            const v6r = buildV6(fsSourceV6);
+            if (!v6r) {
+                console.error('v6 kernel failed to link; falling back to v5');
                 glProgV6 = null; state.kernel = 'v5';
             } else {
-                const U = (n) => gl.getUniformLocation(glProgV6, n);
-                for (const k of Object.keys(glUniformsV5)) glUniformsV6[k] = U('u_' + k);
-                for (const n of ['texPosLo', 'newton', 'readbackLayout', 'certMode', 'rootMode', 'precision', 'betaMax', 'c', 'one', 'zero',
-                                 'viewCenter', 'viewHalfHeight', 'gain', 'showMask', 'maskThreshold', 'taperOn', 'ringReach', 'fastRender']) glUniformsV6[n] = U('u_' + n);
-                gl.useProgram(glProgV6);
-                gl.uniform1i(glUniformsV6.texPosVel, 0);
-                gl.uniform1i(glUniformsV6.texAccChg, 1);
-                gl.uniform1i(glUniformsV6.texQueryCoords, 2);
-                gl.uniform1i(glUniformsV6.texPosLo, 4);
-                gl.uniform1i(glUniformsV6.certMode, 1);
-                gl.uniform1i(glUniformsV6.rootMode, 1);
-                gl.uniform1i(glUniformsV6.precision, 1);
-                gl.uniform1i(glUniformsV6.readbackLayout, 0);
-                gl.uniform1i(glUniformsV6.newton, V6_NEWTON);
-                gl.uniform1f(glUniformsV6.betaMax, V6_BETA_MAX);
-                gl.uniform1f(glUniformsV6.c, C_LIGHT);
-                gl.uniform1f(glUniformsV6.one, 1.0);
-                gl.uniform1ui(glUniformsV6.zero, 0);
-                gl.uniform2f(glUniformsV6.viewCenter, 0.0, 0.0);
-                gl.uniform1f(glUniformsV6.viewHalfHeight, 1.45);
-                gl.uniform1f(glUniformsV6.gain, 1.0);
-                gl.uniform1f(glUniformsV6.maskThreshold, 1.5);
-                gl.uniform1i(glUniformsV6.taperOn, 0);
+                glProgV6 = v6r.prog; glUniformsV6 = v6r.uni;
+                const v6k = buildV6(fsSourceV6.replace('#version 300 es\n', '#version 300 es\n#define KNOWN_PATH\n'));
+                if (v6k) { glProgV6K = v6k.prog; glUniformsV6K = v6k.uni; }
+                else state.knownPath = false;
                 texPosLo = createDataTex(4);
+                texJerk = createDataTex(5);
                 gl.useProgram(glProgV5);
             }
             selectKernel();
@@ -2354,6 +2602,24 @@ void main() {
                 gl.bindTexture(gl.TEXTURE_2D, texPosLo);
                 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, activeRows, 0, gl.RGBA, gl.FLOAT, texPosLoData.subarray(0, totalFloats));
             }
+            if (texJerk) {
+                let anyExact = false;
+                for (let s = 0; s < activeRows; s++) {
+                    const src = state.sources[s];
+                    const rowOffset = s * M * 4;
+                    for (let m = 0; m < M; m++) {
+                        const i4 = rowOffset + m * 4;
+                        texJerkData[i4] = src.emitJx[m];
+                        texJerkData[i4 + 1] = src.emitJy[m];
+                        texJerkData[i4 + 2] = src.emitExact[m];
+                        if (src.emitExact[m]) anyExact = true;
+                    }
+                }
+                knownPathOnGPU = anyExact;
+                gl.activeTexture(gl.TEXTURE5);
+                gl.bindTexture(gl.TEXTURE_2D, texJerk);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, activeRows, 0, gl.RGBA, gl.FLOAT, texJerkData.subarray(0, totalFloats));
+            }
         }
 
         function evaluateViaGPUFramebufferReadback(pointsArray, M, kBin, velMode, skipUpload) {
@@ -2371,6 +2637,7 @@ void main() {
                 if (!skipUpload) {
                     uploadHistoryTexturesToGPU(M, state.numParticles);
                 }
+                if (pickV6Variant()) gl.useProgram(glProg);
 
                 gl.activeTexture(gl.TEXTURE2);
                 gl.bindTexture(gl.TEXTURE_2D, texQueryCoords);
@@ -2431,7 +2698,10 @@ void main() {
                 if (st.pbx !== undefined) { aix = (path.bx - st.pbx) / dt; aiy = (path.by - st.pby) / dt; }
                 else { aix = path.bdx * C_LIGHT; aiy = path.bdy * C_LIGHT; }
                 st.pbx = path.bx; st.pby = path.by;
-                bCap = Math.max(bCap, Math.hypot(path.bx, path.by));
+                // allow up to halfway between the path's speed and c, so a source left behind its path can catch up
+                // (with a cap equal to the path's own speed the gap only closed by cutting corners: minutes, not seconds)
+                const bPath = Math.hypot(path.bx, path.by);
+                bCap = Math.max(bCap, bPath + 0.5 * (1 - bPath));
                 st.px = goal.x; st.py = goal.y; st.vx = vix; st.vy = viy;
             } else {
                 const k = 1 - Math.exp(-dt / P.pointerTau);
@@ -2454,7 +2724,7 @@ void main() {
             const ax0 = s.bdx * C_LIGHT, ay0 = s.bdy * C_LIGHT;
             // (velocity error against the velocity the feed-forward alone would reach by the end of the step)
             let adx = aix + (vdx - (s.bx + aix * dt)) / P.velTau, ady = aiy + (vdy - (s.by + aiy * dt)) / P.velTau;
-            const am = Math.hypot(adx, ady), aLim = Math.max(aMax, Math.hypot(aix, aiy));
+            const am = Math.hypot(adx, ady), aLim = Math.max(aMax, 1.25 * Math.hypot(aix, aiy));   // 25% headroom over the path's own acceleration for correcting toward it
             if (am > aLim) { adx *= aLim / am; ady *= aLim / am; }
             let jx = adx - ax0, jy = ady - ay0;
             const jm = Math.hypot(jx, jy), jl = (aLim / P.jerkTau) * dt;
@@ -2486,11 +2756,15 @@ void main() {
 
                 if (i === 0 && betaOverride === undefined && (state.interactionTarget === 'source0' || s.returningToOrbit)) {
                     const dragging = state.interactionTarget === 'source0';
+                    // the worldline leaves its known path: record the interval (closed on hand-back below)
+                    const w = s.dragWins[s.dragWins.length - 1];
+                    if (!w || w[1] !== Infinity) s.dragWins.push([state.time - dt, Infinity]);
                     const goal = dragging ? state.draggedSourceTarget : { x: kin.x, y: kin.y };
                     // Hand back to the prescribed path only once the two worldlines nearly coincide, so the
                     // hand-off cannot introduce a superluminal jump.
                     if (!dragging && Math.hypot(goal.x - (s.x + s.bx * C_LIGHT * dt), goal.y - (s.y + s.by * C_LIGHT * dt)) < 1e-4 && Math.hypot(s.bx - kin.bx, s.by - kin.by) < 1e-3 + Math.hypot(kin.bdx, kin.bdy) * C_LIGHT * dt) {
                         s.returningToOrbit = false; s._drag = null;
+                        if (s.dragWins.length) s.dragWins[s.dragWins.length - 1][1] = state.time;
                         s.x = kin.x; s.y = kin.y;
                         s.bx = kin.bx; s.by = kin.by;
                         s.bdx = kin.bdx; s.bdy = kin.bdy;
@@ -2516,7 +2790,9 @@ void main() {
 
                 if (skipShellPopulate) continue;
 
-                if (!state.useDiffusiveEulerian) {
+                if (knownPathLive(betaOverride, motionOverride, uniformMaxR, gridMode)) {
+                    populateKnownPathShells(s, i, N, M, vMode, dt);
+                } else if (!state.useDiffusiveEulerian) {
                     populateShellsFromRingBuffer(s, M, vMode, dt, uniformMaxR, gridMode);
                 } else {
                     const cDt = C_LIGHT * dt;
@@ -2566,6 +2842,7 @@ void main() {
                 gl.viewport(0, 0, cw, ch);
                 gl.useProgram(glProg);
                 uploadHistoryTexturesToGPU(state.mT, state.numParticles);
+                if (pickV6Variant()) gl.useProgram(glProg);
 
                 const chanMap = { total: 0, lw_split: 1, error_map: 2, rad_only: 3 };
                 const motMap = { synchrotron: 0, uniform: 1, oscillator: 2, swarm: 3 };
@@ -3062,18 +3339,36 @@ void main() {
             reseedAllSources();   // the two kernels resample the history differently (prefilter, clamp)
         });
 
+        document.getElementById('btn-path').addEventListener('click', (e) => {
+            state.knownPath = !state.knownPath;
+            e.target.textContent = state.knownPath ? 'Path: known (exact)' : 'Path: live (ring)';
+            reseedAllSources();
+        });
+
         document.getElementById('btn-mask').addEventListener('click', (e) => {
             state.showMask = !state.showMask;
             e.target.textContent = `Validity Mask: ${state.showMask ? 'ON' : 'OFF'}`;
         });
 
+        document.getElementById('btn-speed').addEventListener('click', (e) => {
+            state.simSpeed = state.simSpeed % 4 + 1;
+            e.target.textContent = `Speed: ${state.simSpeed}×`;
+        });
+
         document.getElementById('btn-mt').addEventListener('click', (e) => {
+            // 128 → 512 → 1024 → 2048 → Auto (from the view's reach and gamma; known-path table) → 128
             const shells = [128, 512, 1024, 2048];
             const kBins = [9, 11, 12, 13];
-            const idx = (shells.indexOf(state.mT) + 1) % shells.length;
-            state.mT = shells[idx];
-            state.kBin = kBins[idx];
-            e.target.textContent = `Shells M_T: ${state.mT}`;
+            if (state.mTAuto) {
+                state.mTAuto = false; state.mT = 128; state.kBin = 9;
+            } else if (state.mT === 2048) {
+                state.mTAuto = true; state.mT = autoShellCount(); state.kBin = kBinFor(state.mT);
+            } else {
+                const idx = (shells.indexOf(state.mT) + 1) % shells.length;
+                state.mT = shells[idx];
+                state.kBin = kBins[idx];
+            }
+            e.target.textContent = state.mTAuto ? `Shells M_T: Auto (${state.mT})` : `Shells M_T: ${state.mT}`;
             document.getElementById('badge-shells').textContent = `M_T=${state.mT} | Kinematically Consistent Bernstein-Hermite`;
             updateRelativisticTelemetry();
             reseedAllSources();
@@ -3200,8 +3495,21 @@ void main() {
                 fpsFrames = 0;
                 fpsLastUpdate = now;
             }
+            if (state.mTAuto) {
+                const mAuto = autoShellCount();
+                if (mAuto !== state.mT) {
+                    state.mT = mAuto; state.kBin = kBinFor(mAuto);
+                    document.getElementById('btn-mt').textContent = `Shells M_T: Auto (${state.mT})`;
+                    reseedAllSources();
+                }
+            }
             if (!state.paused) {
-                stepSimulation(0.45 * DT_STEP);
+                // simSpeed substeps of the usual live step: the ring spacing and history depth stay as they are;
+                // the shells are resampled only on the last substep (as the original loop's skipShellPopulate), except
+                // in the diffusive Eulerian mode, which advects the shells by one step per populate.
+                const nSub = Math.max(1, state.simSpeed | 0);
+                for (let k = 0; k < nSub; k++)
+                    stepSimulation(0.45 * DT_STEP, undefined, undefined, undefined, undefined, undefined, undefined, k < nSub - 1 && !state.useDiffusiveEulerian);
             }
             renderBulkField();
             renderShockCrestOrRadialPlot();

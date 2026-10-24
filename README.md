@@ -49,6 +49,10 @@ Relative L2 error of GPU readback against the exact field (no softening), on 256
 
 The app hatches pixels where the answer should not be trusted: outside the stored history (red), or where the history is too coarse for the local motion (amber). In the far-field tests, no observer the flag leaves unmarked is more than 0.68% from the exact field (1.6% in preprint v6, before the acceleration terms below). For dragged sources the flag also watches the acceleration history: it now marks 96–99% of the pixels whose error exceeds 1% after sudden starts, stops and reversals (previously 0–35%), and adds at most 0.5% marked pixels on smooth presets. See [docs/ACCURACY.md](docs/ACCURACY.md) for the far-field envelope, the drag measurements, and how well the flag predicts the error.
 
+**Known-path mode** (the app at the site root, and the library with `knownPath: true`): for preset motion the shells hold exact samples of the path, joined by quintic segments that match position, velocity and acceleration at both ends (C2 wherever the speed certificate does not have to limit a segment, C0 where it does). On the pulse sweep at M = 128 it gives 1.4e-4% at γ = 7.1 (ring: 0.038%) and 5.3e-3% at γ = 22 (ring: 0.13%); at γ ≥ 71 the two tie at equal shell count. The shell count needed to match the ring at M = 2048 drops by at least 64× over the default view at γ ≤ 71 (4× at γ ≈ 224; 64× is the largest ratio measured), 2–16× on the sweep at γ ≤ 22, and 4× at 6 < R < 20 (single source, software rendering); see section 6 of [docs/ACCURACY.md](docs/ACCURACY.md). Dragged stretches of history still come from the ring buffer.
+
+The app's **Speed** button (1×–4×, default 2×) runs that many simulation steps per animation frame, so the animation advances faster without changing the physics: the ring spacing and history depth are unchanged, and the shells are resampled once per frame.
+
 ## Using the app
 
 This section describes the TypeScript build (`/v6/`). Open it, pick a scenario, and drag in the field to move the first charge (or switch to pan mode; the wheel zooms). The probe panel compares the GPU value at the green ring with an independent double-precision evaluation; **Check accuracy now** does the same on 64 nearby points. **Run verification suite** reproduces the accuracy table on your hardware; **Export field (CSV)** writes x, y, Ex, Ey, B_z and the validity flag for the current view.
@@ -80,13 +84,15 @@ const field = solver.readFull([{ x: 1.2, y: 0.4 }], cfg);   // [{ ex, ey, bz, qu
 const ref = exactField(sim.trajectories, 1.2, 0.4, sim.time, { c, softEps: 0 });  // float64 check
 ```
 
+For known-path mode set `knownPath: true` in the config (compactified grid) and construct the solver with `new GpuSolver(canvas, KNOWN_PATH_SHADERS)`; with the default shaders the flag has no effect on the field.
+
 Trajectory constructors: `circularOrbit`, `linearMotion`, `harmonicOscillator`, `hyperbolicMotion`, `precessingEllipse`, `functionTrajectory`, `expressionTrajectory`, `sampledTrajectory`, `csvTrajectory`; or any object with `kinematics(t)` returning position, β and a/c². The CPU parts (trajectories, histories, reference) run in Node; see [examples/](examples/).
 
 ## Verification
 
 - **Independent code:** with softening off, a Python port of the double-precision reference agrees with [PyCharge](https://github.com/MatthewFilipovich/pycharge) 2.0.1 to ~1e-11 for circular, oscillating and straight-line motion up to γ = 7.1 ([validation/pycharge](validation/pycharge/REPORT.md)).
 - **Regression:** the original single-file solver from the preprint is kept in [reference/](reference/); the port reproduces its verification suite exactly (154 of 154 values), and the CI checks this on every change.
-- **Tests:** `npm test` (unit tests: trajectories, regression) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test, and for `web/index.html`: v5 kernel bit-identical to the original file in `reference/web_original.html`, v6 kernel pulse-sweep accuracy).
+- **Tests:** `npm test` (unit tests: trajectories, regression, drag physics, known-path knots) and `npm run test:gpu` (headless Chromium with software WebGL2: legacy reproduction, production accuracy thresholds, app smoke test, and for `web/index.html`: v5 kernel bit-identical to the original file in `reference/web_original.html`, v6 kernel pulse-sweep accuracy, known-path accuracy and drag hand-off).
 
 ## Compared with PyCharge
 

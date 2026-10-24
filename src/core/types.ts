@@ -63,6 +63,12 @@ export interface SolverConfig {
   precision: 0 | 1;
   /** Speed cap used by the knot clamps and the limiter. */
   betaMax: number;
+  /**
+   * Known-path mode: shells are exact samples of each source's trajectory (position, beta, acceleration,
+   * jerk) and segments whose two knots are exact use the C2 quintic with the degree-8 certificate.
+   * Intervals where a source left its trajectory (a kinematics override) are resampled from the ring.
+   */
+  knownPath?: boolean;
 }
 
 export const DEFAULT_CONFIG: SolverConfig = {

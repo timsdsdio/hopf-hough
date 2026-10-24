@@ -1,5 +1,5 @@
 import { RingBuffer, type HistorySample } from './ring.js';
-import { MAX_M_T, type SolverConfig, type VelocityMode } from './types.js';
+import { MAX_M_T, type SolverConfig, type Trajectory, type VelocityMode } from './types.js';
 
 export const f32 = Math.fround;
 
@@ -70,6 +70,10 @@ export class ShellHistory {
   /** Low parts of the knot positions (x ≈ emitX + emitXlo to ~2^-48 relative). */
   readonly emitXlo = new Float32Array(MAX_M_T);
   readonly emitYlo = new Float32Array(MAX_M_T);
+  /** Known path: d(acc)/dR at each knot, and 1 where the knot is an exact sample of the trajectory. */
+  readonly emitJx = new Float32Array(MAX_M_T);
+  readonly emitJy = new Float32Array(MAX_M_T);
+  readonly emitExact = new Float32Array(MAX_M_T);
   readonly emitX64 = new Float64Array(MAX_M_T);
   readonly emitY64 = new Float64Array(MAX_M_T);
   readonly emitUx64 = new Float64Array(MAX_M_T);
@@ -86,6 +90,7 @@ export class ShellHistory {
     const stepScale = C_LIGHT * dt;
     const orbitLambda = (2.0 * Math.PI * C_LIGHT) / Math.max(0.5, cfg.omega);
     const velMode = cfg.velMode;
+    this.emitExact.fill(0, 0, M);
 
     for (let m = 0; m < M; m++) {
       const { r64: rShell64, r32: rShellF32, dR } = shellRadius(m, cfg);
@@ -174,6 +179,60 @@ export class ShellHistory {
         this.emitY[m + 1] = f32(this.emitY[m] + f32(dy * shrink));
         this.emitXlo[m + 1] = 0;
         this.emitYlo[m + 1] = 0;
+      }
+    }
+  }
+
+  /**
+   * Known-path populate: each knot is an exact sample of the trajectory at the shell's retarded time,
+   * with the jerk d(acc)/dR for the quintic segments. Knots whose retarded time lies in one of
+   * `offPath` (intervals when the source did not follow its trajectory) come from the ring buffer and
+   * are flagged non-exact, as are knots the chord clamp moves.
+   */
+  populateExact(traj: Trajectory, t: number, ring: RingBuffer, cfg: SolverConfig, offPath: readonly [number, number][] = []): void {
+    const M = cfg.mT, c = cfg.c, dt = cfg.dt, pad = 3 * dt, hJ = 1e-4;
+    for (let m = 0; m < M; m++) {
+      const { r64: rShell64, r32: rShellF32 } = shellRadius(m, cfg);
+      const tRet = t - rShellF32 / c;
+      const exact = !offPath.some(([a, b]) => tRet >= a - pad && tRet <= b + pad);
+      let k: HistorySample, k64: HistorySample;
+      if (exact) {
+        k = traj.kinematics(tRet);
+        const kp = traj.kinematics(tRet + hJ), km = traj.kinematics(tRet - hJ);
+        this.emitJx[m] = f32(-(kp.bdx - km.bdx) / (2 * hJ) / c);
+        this.emitJy[m] = f32(-(kp.bdy - km.bdy) / (2 * hJ) / c);
+        const dtq = (rShellF32 - rShell64) / c, ax = k.bdx * c, ay = k.bdy * c;
+        k64 = { x: k.x + c * (k.bx + 0.5 * ax * dtq) * dtq, y: k.y + c * (k.by + 0.5 * ay * dtq) * dtq, bx: k.bx + ax * dtq, by: k.by + ay * dtq, bdx: k.bdx, bdy: k.bdy };
+      } else {
+        k = ring.sample((rShellF32 / c) / dt, c * dt);
+        k64 = ring.sample((rShell64 / c) / dt, c * dt);
+        this.emitJx[m] = 0; this.emitJy[m] = 0;
+      }
+      const pv = packVelocityForStorage(k.bx, k.by, cfg.velMode);
+      const pv64 = packVelocityForStorage(k64.bx, k64.by, cfg.velMode);
+      this.emitX[m] = f32(k.x); this.emitY[m] = f32(k.y);
+      this.emitXlo[m] = f32(k.x - this.emitX[m]); this.emitYlo[m] = f32(k.y - this.emitY[m]);
+      this.emitUx[m] = pv.ux; this.emitUy[m] = pv.uy;
+      this.emitBdx[m] = f32(k.bdx); this.emitBdy[m] = f32(k.bdy);
+      this.emitR[m] = rShellF32;
+      this.emitX64[m] = k64.x; this.emitY64[m] = k64.y;
+      this.emitUx64[m] = pv64.ux64; this.emitUy64[m] = pv64.uy64;
+      this.emitBdx64[m] = k64.bdx; this.emitBdy64[m] = k64.bdy;
+      this.emitR64[m] = rShell64;
+      this.emitExact[m] = exact ? 1 : 0;
+    }
+    const maxSub = cfg.betaMax;
+    for (let m = 0; m < M - 1; m++) {
+      const dR = Math.max(1e-12, this.emitR[m + 1] - this.emitR[m]);
+      const x0 = this.emitX[m] + this.emitXlo[m], y0 = this.emitY[m] + this.emitYlo[m];
+      const dx = this.emitX[m + 1] + this.emitXlo[m + 1] - x0, dy = this.emitY[m + 1] + this.emitYlo[m + 1] - y0;
+      const chordSpeed = Math.hypot(dx, dy) / dR;
+      if (chordSpeed > maxSub) {
+        const shrink = maxSub / chordSpeed;
+        const nx = x0 + dx * shrink, ny = y0 + dy * shrink;
+        this.emitX[m + 1] = f32(nx); this.emitXlo[m + 1] = f32(nx - this.emitX[m + 1]);
+        this.emitY[m + 1] = f32(ny); this.emitYlo[m + 1] = f32(ny - this.emitY[m + 1]);
+        this.emitExact[m] = 0; this.emitExact[m + 1] = 0;
       }
     }
   }

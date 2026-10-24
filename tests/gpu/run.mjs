@@ -1,6 +1,6 @@
 // GPU test suite (headless Chromium, software WebGL2). Run after `npm run build`.
 //  1. Legacy shader reproduces the original solver's published suite exactly.
-//  2. Production shader meets accuracy thresholds against the exact reference.
+//  2. Production shader meets accuracy thresholds against the exact reference; so does known-path mode.
 //  3. The single-file app loads without errors or external requests.
 //  4. The author's app (web/index.html, site root): v5 kernel bit-identical to the original, v6 kernel accuracy.
 //  5. Validity indicator on dragged histories (acceleration terms) and on smooth / near-rest motion.
@@ -47,6 +47,16 @@ try {
   check(prod.g22.shockL2 < 0.009, `production γ=22.4, M=512: ${prod.g22.shockL2.toPrecision(3)}% < 0.009%`);
   check(prod.g70.shockL2 < 0.05, `production γ=70.7, M=512: ${prod.g70.shockL2.toPrecision(3)}% < 0.05%`);
   check(prod.g70c.shockL2 < 0.5, `production γ=70.7, M=128: ${prod.g70c.shockL2.toPrecision(3)}% < 0.5%`);
+
+  // 2b. Known-path mode in the library: exact knots of the trajectory (SolverConfig.knownPath) + KNOWN_PATH_SHADERS.
+  const kp = await page.evaluate(() => {
+    const H = HopfHough, s = new H.GpuSolver(document.getElementById('b'), H.KNOWN_PATH_SHADERS), B = H.gpuBackend(s);
+    const o = { base: { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false, knownPath: true } };
+    const run = (beta, mT, kBin) => H.runCase({ beta, motion: 'synchrotron', mT, kBin, velMode: 2, nShock: 256 }, B, o);
+    return { g7: run(0.99, 128, 9), g22: run(0.999, 512, 11) };
+  });
+  check(kp.g7.shockL2 < 5e-4, `known path γ=7.1,  M=128: ${kp.g7.shockL2.toPrecision(3)}% < 5e-4% (production: ${prod.g7.shockL2.toPrecision(3)}%)`);
+  check(kp.g22.shockL2 < 2e-3, `known path γ=22.4, M=512: ${kp.g22.shockL2.toPrecision(3)}% < 2e-3% (production: ${prod.g22.shockL2.toPrecision(3)}%)`);
 
   // 3. App smoke test.
   const app = await browser.newPage({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 0.5 });

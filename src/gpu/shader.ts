@@ -60,7 +60,11 @@ uniform float u_maskThreshold;
 uniform int u_taperOn;              // Nyquist prefilter/taper active on the CPU side
 uniform float u_omega;              // its reference angular frequency
 uniform float u_ringReach;          // depth of the stored history, c·dt·(ringSize − 4)
-uniform int u_fastRender;           // 1: cheaper root solve for on-screen rendering (never used for readback)
+uniform int u_fastRender;
+#ifdef KNOWN_PATH
+uniform sampler2D u_texJerk;        // known-path knots: jx, jy (d acc / dR), exact flag (1 = exact sample of a known path), -
+uniform int u_knownPath;            // 1: segments whose two knots are exact use the C2 quintic (degree-8 certificate)
+#endif           // 1: cheaper root solve for on-screen rendering (never used for readback)
 
 const float PI = 3.14159265359;
 
@@ -182,6 +186,29 @@ float alphaSharp(vec2 v, vec2 m0, vec2 m1, float bm) {
   return al;
 }
 
+#ifdef KNOWN_PATH
+// Known-path segments: C2 quintic Hermite (z, z' = -beta, z'' = stored acceleration at both knots).
+// Its hodograph is quartic, so |z'|^2 is degree 8 in Bernstein form: c_k = sum_{i+j=k} w_ij Q_i.Q_j.
+// With Q(alpha) = vSec + alpha (Q - vSec), each c_k is quadratic in alpha; take the first alpha in (0, 1]
+// where some c_k reaches betaMax^2 (c_0 and c_8 are the endpoint speeds, always inside). A limited
+// segment (alpha < 1) no longer matches the endpoint derivatives: it is C0 there, as the cubic is.
+float alphaQuint(vec2 v, vec2 D0, vec2 D1, vec2 D2, vec2 D3, vec2 D4, float bm) {
+  float pp = dot(v, v) - bm * bm;
+  if (pp >= 0.0) return 0.0;
+  float e0 = dot(v, D0), e1 = dot(v, D1), e2 = dot(v, D2), e3 = dot(v, D3), e4 = dot(v, D4);
+  float al = 1.0;
+  al = firstRoot(dot(D0, D1), e0 + e1, pp, al);
+  al = firstRoot((12.0 * dot(D0, D2) + 16.0 * dot(D1, D1)) / 28.0, (12.0 * (e0 + e2) + 32.0 * e1) / 28.0, pp, al);
+  al = firstRoot((8.0 * dot(D0, D3) + 48.0 * dot(D1, D2)) / 56.0, (8.0 * (e0 + e3) + 48.0 * (e1 + e2)) / 56.0, pp, al);
+  al = firstRoot((2.0 * dot(D0, D4) + 32.0 * dot(D1, D3) + 36.0 * dot(D2, D2)) / 70.0, (2.0 * (e0 + e4) + 32.0 * (e1 + e3) + 72.0 * e2) / 70.0, pp, al);
+  al = firstRoot((8.0 * dot(D1, D4) + 48.0 * dot(D2, D3)) / 56.0, (8.0 * (e1 + e4) + 48.0 * (e2 + e3)) / 56.0, pp, al);
+  al = firstRoot((12.0 * dot(D2, D4) + 16.0 * dot(D3, D3)) / 28.0, (12.0 * (e2 + e4) + 32.0 * e3) / 28.0, pp, al);
+  al = firstRoot(dot(D3, D4), e3 + e4, pp, al);
+  return al;
+}
+
+#endif
+
 struct Seg {
   vec2 p1hi; vec2 p1lo;   // knot m1 position
   vec2 dPosSub;           // z(s) - z(m1)
@@ -199,6 +226,10 @@ struct Seg {
 struct SegC {
   vec2 p1hi; vec2 p1lo; float r1; float dR; bool hasNext;
   vec2 dChord; vec2 v0; vec2 v1; vec2 v2;
+#ifdef KNOWN_PATH
+  vec2 v3; vec2 v4; vec2 j1; vec2 j2;   // known-path quintic: hodograph control points 3-4, knot jerks
+  bool exact; bool quint; bool uHerm;  // both knots exact; quintic in use; Hermite |u| in use
+#endif
   vec2 acc0; vec2 acc1; vec2 acc2; vec2 acc3;
   vec2 u0; vec2 u1; vec2 u2; vec2 u3;
   float chg;
@@ -246,6 +277,34 @@ SegC segCoef(int s, int m1In) {
   c.v0 = oma * vSec - alpha * b1;
   c.v1 = vSec + alpha * (v1Raw - vSec);
   c.v2 = oma * vSec - alpha * b2;
+#ifdef KNOWN_PATH
+  c.v3 = vec2(0.0); c.v4 = vec2(0.0); c.j1 = vec2(0.0); c.j2 = vec2(0.0);
+  c.exact = false; c.quint = false; c.uHerm = false;
+  if (u_knownPath == 1) {
+    vec4 jk1 = texelFetch(u_texJerk, ivec2(m1, s), 0);
+    vec4 jk2 = texelFetch(u_texJerk, ivec2(m2, s), 0);
+    c.exact = jk1.z > 0.5 && jk2.z > 0.5;
+    if (c.exact && c.hasNext) {
+      c.quint = true;
+      vec2 Q0 = -b1, Q4 = -b2;
+      vec2 Q1 = Q0 + (0.25 * dR) * k1.acc;
+      vec2 Q3 = Q4 - (0.25 * dR) * k2.acc;
+      vec2 Q2 = 5.0 * vSec - Q0 - Q1 - Q3 - Q4;
+      float aq = alphaQuint(vSec, Q0 - vSec, Q1 - vSec, Q2 - vSec, Q3 - vSec, Q4 - vSec, maxSub);
+      c.v0 = vSec + aq * (Q0 - vSec); c.v1 = vSec + aq * (Q1 - vSec); c.v2 = vSec + aq * (Q2 - vSec);
+      c.v3 = vSec + aq * (Q3 - vSec); c.v4 = vSec + aq * (Q4 - vSec);
+      c.j1 = jk1.xy; c.j2 = jk2.xy;
+      // Hermite |u| only where the segment is resolved (bend term of the validity indicator < 1) and
+      // unlimited: on coarse segments it overshoots (e.g. 0.44 -> 1.1 at beta 0.99, M = 128), so fall
+      // back to linear |u| there.
+      float n1 = length(k1.u), n2 = length(k2.u);
+      float um = 0.5 * (n1 + n2), bm = um / sqrt(1.0 + um * um);
+      float ap = max(abs(b1.x * k1.acc.y - b1.y * k1.acc.x) / max(length(b1), 1e-7),
+                     abs(b2.x * k2.acc.y - b2.y * k2.acc.x) / max(length(b2), 1e-7));
+      c.uHerm = aq >= 1.0 && dR * sqrt(1.0 + um * um) * ap / max(0.04, bm * bm) < 1.0;
+    }
+  }
+#endif
   return c;
 }
 
@@ -265,12 +324,27 @@ Seg evalSeg(SegC c, float tIn) {
 
   float s2 = sRad * sRad;
   float s3 = s2 * sRad;
+  float oms = 1.0 - sRad;
+#ifdef KNOWN_PATH
+  if (!c.quint) {
+#endif
   float h10 = s3 - 2.0 * s2 + sRad;
   float h01 = -2.0 * s3 + 3.0 * s2;
   float h11 = s3 - s2;
   g.dPosSub = h01 * dChord + h10 * (v0 * dR) + h11 * (v2 * dR);
-  float oms = 1.0 - sRad;
   g.dzdR = (oms * oms) * v0 + (2.0 * sRad * oms) * v1 + s2 * v2;
+#ifdef KNOWN_PATH
+  } else {
+    // Bezier position control points relative to z1: P_k = dR/5 sum_{j<k} Q_j; P_5 = chord (exact).
+    float o2 = oms * oms, o3 = o2 * oms, o4 = o3 * oms, t4 = s2 * s2;
+    vec2 P1 = (0.2 * dR) * c.v0;
+    vec2 P2 = P1 + (0.2 * dR) * c.v1;
+    vec2 P3 = P2 + (0.2 * dR) * c.v2;
+    vec2 P4 = dChord - (0.2 * dR) * c.v4;
+    g.dPosSub = (5.0 * o4 * sRad) * P1 + (10.0 * o3 * s2) * P2 + (10.0 * o2 * s3) * P3 + (5.0 * oms * t4) * P4 + (t4 * sRad) * dChord;
+    g.dzdR = o4 * c.v0 + (4.0 * o3 * sRad) * c.v1 + (6.0 * o2 * s2) * c.v2 + (4.0 * oms * s3) * c.v3 + t4 * c.v4;
+  }
+#endif
   vec2 splineVel = -g.dzdR;
   float splineVelMag = length(splineVel);
 
@@ -278,12 +352,33 @@ Seg evalSeg(SegC c, float tIn) {
   float w1 = 1.5 * t3 - 2.5 * t2 + 1.0;
   float w2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
   float w3 = 0.5 * t3 - 0.5 * t2;
+#ifndef KNOWN_PATH
   g.acc = c.acc0 * w0 + c.acc1 * w1 + c.acc2 * w2 + c.acc3 * w3;
+#else
+  float uHermVal = -1.0;
+  if (!c.quint) g.acc = c.acc0 * w0 + c.acc1 * w1 + c.acc2 * w2 + c.acc3 * w3;
+  else {
+    float H00 = 2.0 * t3 - 3.0 * t2 + 1.0, H10 = t3 - 2.0 * t2 + t, H01 = -2.0 * t3 + 3.0 * t2, H11 = t3 - t2;
+    g.acc = H00 * c.acc1 + H10 * (dR * c.j1) + H01 * c.acc2 + H11 * (dR * c.j2);
+    if (c.uHerm) {
+      // d|u|/dR = -gamma^3 (u_hat . acc)
+      float n1 = length(c.u1), n2 = length(c.u2);
+      float q1 = 1.0 + n1 * n1, q2 = 1.0 + n2 * n2;
+      float d1 = -(q1 * sqrt(q1)) * dot(c.u1, c.acc1) / max(n1, 1e-20);
+      float d2 = -(q2 * sqrt(q2)) * dot(c.u2, c.acc2) / max(n2, 1e-20);
+      uHermVal = max(0.0, H00 * n1 + H10 * (dR * d1) + H01 * n2 + H11 * (dR * d2));
+    }
+  }
+#endif
   g.chg = c.chg;
   g.duRel = length(c.u2 - c.u1) / (0.5 * (length(c.u1) + length(c.u2)) + 0.1);
 
   if (u_velMode == 2) {
+#ifdef KNOWN_PATH
+    float uTarget = uHermVal >= 0.0 ? uHermVal : mix(length(c.u1), length(c.u2), t);
+#else
     float uTarget = mix(length(c.u1), length(c.u2), t);
+#endif
     g.bHat = splineVelMag > 1e-7 ? splineVel / splineVelMag : vec2(1.0, 0.0);
     float uSq = uTarget * uTarget;
     g.bMag = uTarget / sqrt(1.0 + uSq);
@@ -514,7 +609,11 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
       if (g.dR / (0.5 * lambda) > 0.25) q = max(q, 2.0);
     }
     // Beyond the ring buffer the shells repeat its oldest sample: not a valid history.
+#ifdef KNOWN_PATH
+    if (u_ringReach > 0.0 && !cS.exact && g.r1 + g.dR > u_ringReach) inDomain = false;
+#else
     if (u_ringReach > 0.0 && g.r1 + g.dR > u_ringReach) inDomain = false;
+#endif
     if (!inDomain) o.quality = -1.0;
     else if (o.quality >= 0.0) o.quality = max(o.quality, q);
     if (s == 0) { o.emit0 = (g.p1hi + g.p1lo) + g.dPosSub; o.dbg = vec4(g.r1, g.dRSub, kappa, g.bMag); }

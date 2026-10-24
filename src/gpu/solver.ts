@@ -13,6 +13,11 @@ export interface ShaderSources { vertex: string; fragment: string; production: b
 
 export const LEGACY_SHADERS: ShaderSources = { vertex: LEGACY_VERTEX_SHADER, fragment: LEGACY_FRAGMENT_SHADER, production: false };
 export const PRODUCTION_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: FRAGMENT_SHADER, production: true };
+/**
+ * The production kernel with known-path segments compiled in (C2 quintic + degree-8 certificate on knots
+ * flagged exact; see SolverConfig.knownPath). A separate program so the plain v6 kernel is unchanged.
+ */
+export const KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: FRAGMENT_SHADER.replace('#version 300 es\n', '#version 300 es\n#define KNOWN_PATH\n'), production: true };
 
 export type UniformValue = number | boolean | [number, number] | [number, number, number, number];
 
@@ -43,6 +48,9 @@ export class GpuSolver {
   private readonly texAccChg: WebGLTexture;
   private readonly texQuery: WebGLTexture;
   private readonly texPosLo: WebGLTexture | null;
+  private readonly texJerk: WebGLTexture | null;
+  private readonly jerkData: Float32Array | null;
+  private uploadedExact = false;
   private readonly fbo: WebGLFramebuffer;
   private readonly posVelData = new Float32Array(MAX_M_T * MAX_SOURCES * 4);
   private readonly accChgData = new Float32Array(MAX_M_T * MAX_SOURCES * 4);
@@ -79,6 +87,8 @@ export class GpuSolver {
     const verifyTex = this.dataTexture(3);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.readW, this.readH, 0, gl.RGBA, gl.FLOAT, null);
     this.texPosLo = shaders.production ? this.dataTexture(4) : null;
+    this.texJerk = shaders.production ? this.dataTexture(5) : null;
+    this.jerkData = shaders.production ? new Float32Array(MAX_M_T * MAX_SOURCES * 4) : null;
     const fbo = gl.createFramebuffer();
     if (!fbo) throw new Error('Could not create framebuffer.');
     this.fbo = fbo;
@@ -89,7 +99,7 @@ export class GpuSolver {
     this.set('u_texPosVel', 0);
     this.set('u_texAccChg', 1);
     this.set('u_texQueryCoords', 2);
-    if (shaders.production) { this.set('u_texPosLo', 4); this.setFloat('u_one', 1.0); this.setUint('u_zero', 0); }
+    if (shaders.production) { this.set('u_texJerk', 5); this.set('u_knownPath', 0); this.set('u_texPosLo', 4); this.setFloat('u_one', 1.0); this.setUint('u_zero', 0); }
   }
 
   private link(src: ShaderSources): WebGLProgram {
@@ -147,6 +157,8 @@ export class GpuSolver {
     const gl = this.gl;
     const rows = Math.max(1, histories.length);
     const lo = this.posLoData;
+    const jd = this.jerkData;
+    let exact = false;
     for (let s = 0; s < histories.length; s++) {
       const h = histories[s];
       const off = s * M * 4;
@@ -161,6 +173,7 @@ export class GpuSolver {
         this.accChgData[i + 2] = h.charge;
         this.accChgData[i + 3] = h.emitR[m];
         if (lo) { lo[i] = h.emitXlo[m]; lo[i + 1] = h.emitYlo[m]; lo[i + 2] = 0; lo[i + 3] = 0; }
+        if (jd) { jd[i] = h.emitJx[m]; jd[i + 1] = h.emitJy[m]; jd[i + 2] = h.emitExact[m]; jd[i + 3] = 0; if (h.emitExact[m]) exact = true; }
       }
     }
     const n = M * rows * 4;
@@ -175,6 +188,12 @@ export class GpuSolver {
       gl.bindTexture(gl.TEXTURE_2D, this.texPosLo);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, rows, 0, gl.RGBA, gl.FLOAT, lo.subarray(0, n));
     }
+    if (jd && this.texJerk) {
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, this.texJerk);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, M, rows, 0, gl.RGBA, gl.FLOAT, jd.subarray(0, n));
+    }
+    this.uploadedExact = exact;
     this.uploadedCount = histories.length;
     this.uploadedM = M;
   }
@@ -198,6 +217,7 @@ export class GpuSolver {
       this.set('u_taperOn', cfg.prefilter && cfg.gridMode === 'compactified');
       this.setFloat('u_omega', cfg.omega);
       this.setFloat('u_ringReach', cfg.c * cfg.dt * (cfg.ringSize - 4));
+      this.set('u_knownPath', !!cfg.knownPath && this.uploadedExact);
     }
   }
 

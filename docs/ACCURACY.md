@@ -252,6 +252,62 @@ On smooth resampled histories the unlimited spline only exceeds c on the outermo
 | production | 6510, 4826, 3860 |
 | float32 root (otherwise production) | 5585, 3467, 3510 |
 | version-5 algorithm (switches) | 3592, 3547, 3539 |
+## 6. Known-path mode
+
+When a source follows a preset whose position, velocity, acceleration and jerk are known in closed form, its shells can be filled with exact samples of the path instead of resampling the ring buffer. Segments between two exact knots use a quintic Hermite (position, velocity and acceleration matched at both knots; quartic hodograph) with the |z′|² certificate extended to degree 8. Where the certificate does not limit the segment (α = 1) the curve is C2; a limited segment (α < 1) no longer matches the endpoint derivatives and is C0 there, as the cubic is. Acceleration is a cubic Hermite in the stored jerk; |u| is a cubic Hermite only where the segment is resolved (bend term of the validity indicator < 1), else linear as before. Knots whose retarded time falls in a stretch where the user dragged the source come from the ring buffer as before, and so do live (dragged-only) sources. It is a separate shader program (`#define KNOWN_PATH`): the ring program is unchanged.
+
+One source on the circular orbit (radius 0.85), no softening, float32 readback in software rendering. *sweep* = the pulse sweep of section 1; *view* = 24 × 24 observers over the app's default view (points within 0.05 of the orbit excluded); *far* = 512 observers at 6 < R < 20 from the orbit centre. At γ ≈ 224 the sweep uses double-precision observer coordinates. Far-field figures at small M are dominated by observers outside the shells' reach (the validity indicator marks them).
+
+| β | γ | M | known: sweep | view | far | ring: sweep | view | far |
+|---|---|---|---|---|---|---|---|---|
+| 0.99 | 7.1 | 32 | 4.2e-4% | 4.8e-4% | >100% | — | — | — |
+| 0.99 | 7.1 | 64 | 2.5e-4% | 2.1e-4% | >100% | — | — | — |
+| 0.99 | 7.1 | 128 | 1.4e-4% | 9.3e-5% | >100% | 0.038% | 0.10% | >100% |
+| 0.99 | 7.1 | 256 | 9.4e-5% | 1.7e-4% | 25% | — | — | — |
+| 0.99 | 7.1 | 512 | 7.6e-5% | 7.6e-5% | 0.024% | 0.0022% | 0.022% | 11% |
+| 0.99 | 7.1 | 1024 | 9.4e-5% | 2.2e-4% | 0.012% | — | — | — |
+| 0.99 | 7.1 | 2048 | 7.8e-5% | 6.5e-5% | 9.7e-4% | 1.8e-4% | 0.0018% | 1.6% |
+| 0.999 | 22.4 | 32 | 0.015% | 1.4e-4% | >100% | — | — | — |
+| 0.999 | 22.4 | 64 | 0.0078% | 2.9e-4% | >100% | — | — | — |
+| 0.999 | 22.4 | 128 | 0.0053% | 4.2e-5% | >100% | 0.13% | 0.084% | >100% |
+| 0.999 | 22.4 | 256 | 0.0021% | 1.0e-4% | 4.5% | — | — | — |
+| 0.999 | 22.4 | 512 | 9.3e-4% | 1.4e-4% | 0.031% | 0.0077% | 0.0044% | >100% |
+| 0.999 | 22.4 | 1024 | 4.4e-4% | 3.6e-4% | 0.0051% | — | — | — |
+| 0.999 | 22.4 | 2048 | 3.5e-4% | 1.4e-4% | 2.7e-4% | 5.4e-4% | 2.9e-4% | 0.12% |
+| 0.9999 | 70.7 | 32 | 0.47% | 1.3e-4% | >100% | — | — | — |
+| 0.9999 | 70.7 | 64 | 0.12% | 1.6e-4% | >100% | — | — | — |
+| 0.9999 | 70.7 | 128 | 0.13% | 6.2e-5% | >100% | 0.37% | 0.068% | >100% |
+| 0.9999 | 70.7 | 256 | 0.063% | 6.6e-5% | 2.7% | — | — | — |
+| 0.9999 | 70.7 | 512 | 0.036% | 1.8e-4% | 0.012% | 0.036% | 0.0057% | >100% |
+| 0.9999 | 70.7 | 1024 | 0.010% | 8.6e-5% | 0.0020% | — | — | — |
+| 0.9999 | 70.7 | 2048 | 0.0072% | 3.3e-5% | 2.9e-4% | 0.0070% | 3.1e-4% | 0.16% |
+| 0.99999 | 223.6 | 32 | 15% | 2.2e-4% | >100% | — | — | — |
+| 0.99999 | 223.6 | 64 | 6.1% | 2.9e-4% | >100% | — | — | — |
+| 0.99999 | 223.6 | 128 | 3.0% | 1.1e-4% | >100% | 5.4% | 0.093% | >100% |
+| 0.99999 | 223.6 | 256 | 2.3% | 2.3e-4% | 79% | — | — | — |
+| 0.99999 | 223.6 | 512 | 0.87% | 4.8e-5% | 0.17% | 1.1% | 0.0038% | 44% |
+| 0.99999 | 223.6 | 1024 | 0.75% | 8.7e-5% | 0.0054% | — | — | — |
+| 0.99999 | 223.6 | 2048 | 0.23% | 8.0e-5% | 1.2e-4% | 0.20% | 6.6e-5% | 9.1% |
+
+**Shells needed for the accuracy of the ring at M = 2048** (ratio 2048 / smallest known-path M that is at least as accurate; the M values tested are powers of two from 32, so 64× is the largest ratio this table can show; a dash means no tested M was):
+
+| β | γ | sweep | view | far (6 < R < 20) |
+|---|---|---|---|---|
+| 0.99 | 7.1 | 16× | 64× | 4× |
+| 0.999 | 22.4 | 2× | 64× | 4× |
+| 0.9999 | 70.7 | — | 64× | 4× |
+| 0.99999 | 223.6 | — | 4× | 4× |
+
+The saving is large near the charge and on the sweep at moderate γ, and shrinks with distance and γ: at γ ≥ 71 the sweep error is set by the pulse resolution and the two are tied at equal M. Over the default view the known-path error sits at the float32 floor (~1e-4%) from M = 32 up. These are single-source, single-preset measurements in software rendering.
+
+**Cost** (default scene: 32 ensemble sources, softening 0.06; software rendering, relative only): frame time v5 M=128 1395 ms, v6 ring M=128 6096 ms, v6 ring M=512 6621 ms, v6 ring M=2048 7294 ms, known path M=64 8726 ms, M=128 8965 ms, M=512 9507 ms. At equal M the known-path program costs more per frame (quintic evaluation, one more texture fetch per knot); at equal accuracy it needs fewer shells. CPU shell build per step (32 sources): ring 1.5 / 5.9 / 21.3 ms, known path 3.5 / 9.3 / 38.7 ms at M = 128 / 512 / 2048 (three trajectory evaluations per knot).
+
+**Grab and release.** Orbit preset (β = 0.8, 4 sources, M = 512): source 0 dragged on a jerky path for 500 steps, released, and left to rejoin its orbit; the same run in ring mode for comparison. Both modes rejoin at the same step (1102 / 1102). On a 12 × 12 grid the two fields differ by at most 3.3e-6 RMS (1.0e-4 worst point) at every snapshot through drag, return and rejoin, so the hand-off adds no visible step. Exact knots return as the dragged stretch moves outward: 505 of 512 before the grab, 55 at the fewest, 493 at the last snapshot.
+
+**Auto shell count.** The app's M_T button has an *Auto* setting: it picks M from the view's largest retarded radius (view diagonal + 0.9) — 128 when that is ≤ 6 and γ ≤ 100, 512 when it is ≤ 6 at higher γ or ≤ 20, else 2048. The app's view is fixed at |y| ≤ 1.45, so Auto gives 128 shells (512 above γ = 100). The thresholds follow the equal-accuracy table above and the far-field qualification (the saving is ≤ 4× by R ≈ 20); they assume known-path mode, and in ring mode Auto is less accurate than a fixed 512 or 2048.
+
+Not done: closed-form fields for uniform and hyperbolic motion (the app has no hyperbolic preset, and its straight-line preset restarts every 4.4 time units, so the history is not a single uniform motion).
+
 
 ## On real hardware
 

@@ -1,5 +1,5 @@
 import { RingBuffer } from './ring.js';
-import { ShellHistory } from './shells.js';
+import { ShellHistory, shellRadius } from './shells.js';
 import type { Kinematics, SolverConfig, Trajectory } from './types.js';
 
 /** One charge: its prescribed trajectory, its retarded-time history and its shell resampling. */
@@ -7,6 +7,8 @@ export class Source {
   trajectory: Trajectory;
   readonly ring: RingBuffer;
   readonly shells = new ShellHistory();
+  /** Known-path mode: intervals [t0, t1] during which an override took the source off its trajectory. */
+  offPath: [number, number][] = [];
   /** Most recent kinematic state written to the ring. */
   current: Kinematics = { x: 0, y: 0, bx: 0, by: 0, bdx: 0, bdy: 0, charge: 1 };
 
@@ -47,7 +49,17 @@ export class Simulation {
     s.current = now;
     s.shells.charge = now.charge;
     s.ring.seed((t) => s.trajectory.kinematics(t), t0, this.config.dt);
-    s.shells.populate(s.ring, this.config);
+    s.offPath = [];
+    this.populateSource(s);
+  }
+
+  /** Resample one source's shells: exact knots of its trajectory in known-path mode, else the ring buffer. */
+  populateSource(s: Source): void {
+    if (this.config.knownPath && this.config.gridMode === 'compactified') {
+      const reach = shellRadius(this.config.mT - 1, this.config).r64;
+      s.offPath = s.offPath.filter(([, b]) => b >= this.time - reach / this.config.c - 3 * this.config.dt);
+      s.shells.populateExact(s.trajectory, this.time, s.ring, this.config, s.offPath);
+    } else s.shells.populate(s.ring, this.config);
   }
 
   /** Replace trajectories (keeps the source count in sync) and reseed. */
@@ -66,17 +78,22 @@ export class Simulation {
     for (let i = 0; i < this.sources.length; i++) {
       const s = this.sources[i];
       const prescribed = s.trajectory.kinematics(this.time);
-      const k = (this.override && this.override(i, this.time, dt, s.current, prescribed)) || prescribed;
+      const ov = this.override && this.override(i, this.time, dt, s.current, prescribed);
+      const k = ov || prescribed;
+      // known path: record when the source is off its trajectory (its history there comes from the ring)
+      const w = s.offPath[s.offPath.length - 1];
+      if (ov) { if (!w || w[1] !== Infinity) s.offPath.push([this.time - dt, Infinity]); }
+      else if (w && w[1] === Infinity) w[1] = this.time;
       s.current = k;
       s.shells.charge = k.charge;
       s.ring.push(k);
-      if (!skipShells) s.shells.populate(s.ring, this.config);
+      if (!skipShells) this.populateSource(s);
     }
   }
 
   /** Resample every source's shells (after a config change such as mT or scaleL). */
   repopulate(): void {
-    for (const s of this.sources) s.shells.populate(s.ring, this.config);
+    for (const s of this.sources) this.populateSource(s);
   }
 
   get shellHistories(): ShellHistory[] {
