@@ -31,7 +31,8 @@ patching the exported shader text, and every patch is checked to apply exactly o
 </ul>
 <p>
   Size <select id="size">
-    <option value="1">as the app (window × DPR)</option>
+    <option value="1">as the app (window size, 1 pixel per screen point)</option>
+    <option value="retina">Retina (window × device pixel ratio, 4× the pixels)</option>
     <option value="0.5">half</option>
     <option value="0.25">quarter</option>
     <option value="fixed256">256 × 160 (quick)</option>
@@ -552,9 +553,10 @@ async function timeFrames(fn, rt, draws, label) {
 // ---------------------------------------------------------------- page
 function chooseSize() {
   const v = document.getElementById('size').value;
-  dpr = window.devicePixelRatio || 1;
+  // Tim's app renders at CSS-pixel resolution (DPR 1); "retina" is the device-pixel stress case.
+  dpr = v === 'retina' ? (window.devicePixelRatio || 1) : 1;
   if (v === 'fixed256') { W = 256; Hh = 160; return; }
-  const f = Number(v) || 1;
+  const f = v === 'retina' ? 1 : (Number(v) || 1);
   W = Math.max(16, Math.round(window.innerWidth * dpr * f));
   Hh = Math.max(16, Math.round(window.innerHeight * dpr * f));
 }
