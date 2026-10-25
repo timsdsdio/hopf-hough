@@ -8,7 +8,7 @@ It adds no new physics. It is a fast, verifiable way to look at, and export, nea
 
 - **Live app:** https://timsdsdio.github.io/hopf-hough/ — the author's single-file app (`web/index.html`) running the v6f kernel by default; the **Kernel** button cycles v6f → v6f precise → v6 → v5 → v6f (v6f precise adds the field floor fix: more accurate at high γ, about 0.77× the frame rate of v6 on an M1 Max; v5 is the original kernel, bit-identical to the pre-port file kept as `reference/web_original.html`; v6 is bit-identical to the v6 kernel on main before this release, commit 904bcce, which includes the κ-form radiation term and the Newton fix, kept as `reference/web_v6_1.html`), and **Validity Mask** hatches untrusted pixels.
 - **TypeScript build:** https://timsdsdio.github.io/hopf-hough/v6/ — the library's own app with the verification suite, CSV export and URL parameters (or open `dist/hopf-hough.html` after building); v6f by default, `?kernel=v6fp` for v6f precise, `?kernel=v6` for v6.
-- **Preprint:** T. Huff, *A Causality-Preserving, Stereographically Compactified Worldline Representation for Retarded Liénard–Wiechert Electrodynamics*, Zenodo (2026), [doi:10.5281/zenodo.23581323](https://doi.org/10.5281/zenodo.23581323)
+- **Preprint:** T. Huff, *A Causality-Preserving, Stereographically Compactified Worldline Representation for Retarded Liénard–Wiechert Electrodynamics*, Zenodo (2026), version 6.2: [doi:10.5281/zenodo.23649998](https://doi.org/10.5281/zenodo.23649998) (all versions: [doi:10.5281/zenodo.23572048](https://doi.org/10.5281/zenodo.23572048))
 
 ## What it computes
 
