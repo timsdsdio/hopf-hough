@@ -1,4 +1,4 @@
-# Tim's app (web/index.html), "Run Evolved GPU Suite", Kernel: v6 (accurate), commit 06edf87
+# The author's app (web/index.html), "Run Evolved GPU Suite", Kernel: v6 (accurate), commit 06edf87
 # (κ-form radiation term + Newton safeguard fix). Chrome on Apple M1 Max (ANGLE → Metal), 2026-10-23.
 # Frame rate, 32 sources, default scene: v6 62 fps (57 before these fixes; v5 120 fps, display-capped).
 β (γ)	|Δz| (128→512)	Bulk 128	Pulse 128 Norm	Pulse 512 (4-Vel)	Pulse 2048 (4-Vel)

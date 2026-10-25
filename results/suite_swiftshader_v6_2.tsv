@@ -1,7 +1,7 @@
-# Author's app (web/index.html), "Run Evolved GPU Suite" for each kernel, commit f6beda5 + working tree (release/v6.2)
+# Author's app (web/index.html), "Run Evolved GPU Suite" for each kernel, commit 099967f + working tree (release/v6.2)
 # Headless Chromium (Chrome/153.0.0.0), ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver). SwiftShader is IEEE float32 software rendering; no timings here.
 # Relative L2 error vs the exact LW field at the same float32 points, synchrotron pulse sweep (256 observers) and ring (64 observers, "bulk").
-# Ring-buffer (live) history, as the app suite. Number formatting widened to 3 significant digits (tests/gpu/suite_web.mjs); computation unchanged.
+# Ring-buffer (live) history, as the app suite. Values as printed by the app (error percentages to 3 significant figures).
 # pos_err_128: max |emission point GPU - exact| on the ring at M = 128; ratio: M = 128 / M = 512.
 kernel	beta	gamma	pos_err_128	pos_ratio_128_512	bulk_128	pulse_128_norm	pulse_512_4vel	pulse_2048_4vel
 v6f	0.8000	1.7	7.2e-8	1	0.00297%	0.00671%	0.000444%	0.0000357%

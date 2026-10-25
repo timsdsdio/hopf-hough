@@ -1,9 +1,31 @@
-# Tim's app (web/index.html), "Run Evolved GPU Suite", release/v6.2 candidate, on Tim's Apple M1 Max (64 GB),
-# Safari (WebGL2 on Metal), 2026-10-25. Measured by Tim; values as printed by the app (2 decimals).
-# Kernel: v6f with the field-floor fix, i.e. the v6 source compiled with #define F32N only. In the release this
-# build is the "v6f precise" kernel (id v6fp); the release default v6f is F32N + F32N_NOFIX (no field-floor fix).
-# The suite uses its own ring-buffer histories (synchrotron pulse sweep, 256 observers, float32 observer points).
-# Columns not reported by Tim (|Δz|, Bulk 128) are left out.
+# The author's app (web/index.html), "Run Evolved GPU Suite", on the author's Apple M1 Max (64 GB), Safari (WebGL2 on Metal),
+# 2026-10-25. Measured by the author; values as printed by the app at the time (2 decimals; the release prints 3 significant figures).
+#
+# Provenance: every figure below was measured on a development copy of web/index.html, not on the tagged v6.2.0 build.
+# The kernel code (shader source and defines) of each build named below is identical to that of the release
+# (release/v6.2 at 099967f; the F32N GLSL region of web/index.html equals src/gpu/shader.ts).
+#   v6f  = #define F32N + F32N_NOFIX (no field-floor fix; the release default)
+#   v6fp = #define F32N only (with the field-floor fix; "v6f precise")
+# Builds:
+#   (A) split build: the dev copy with v6f = no-fix and v6fp = with-fix, kernel code identical to 099967f.
+#   (B) pre-split build: the earlier dev copy, in which "v6f" was the with-fix kernel (F32N only), i.e. the same
+#       code as today's v6fp; it also had the v6 and v5 kernels.
+#   (C) labs/app2d-v6f-nofix.html, a development lab page (not part of the release) running the F32N + F32N_NOFIX
+#       shader, the same shader as today's v6f.
+# The suite uses its own ring-buffer histories (synchrotron pulse sweep, 256 observers; ring "bulk", 64 observers;
+# float32 observer points). On these histories the field-floor fix changes the error by 0.9-1.2x (SwiftShader,
+# results/suite_swiftshader_v6_2.tsv), so the suite does not test whether the fix is intact on Metal.
+#
+# ---- Accuracy, build (A), suite run once with v6f and once with v6fp ----
+# Both runs printed identical values at the printed 2-decimal precision.
+Kernel: v6f   β=0.8: Bulk128 0.00% Pulse128 0.01% P512 0.00% P2048 0.00% | 0.95: 0.12% 0.02% 0.00% 0.00% | 0.99: 0.01% 0.04% 0.00% 0.00% | 0.999: 0.01% 0.13% 0.01% 0.00% | 0.9999: 0.05% 0.40% 0.02% 0.00%
+γ=70.7 GPU: 512: 0.02% | 1024: 0.01% | 2048: 0.00% (spline f64: 0.0236% | 0.00602% | 0.00166%)
+grids: Compactified 0.04% | Quadratic 1.60% | Log-Exp 0.33% | Uniform 761.2%; Unbounded: 1.62% vs 113.9%
+Kernel: v6fp  (identical to v6f in every printed value)
+|Δz| (128→512): 7.2e-8, 5.8e-8, 7.1e-8, 6.8e-8, 6.5e-8, all at 1× (β = 0.8 → 0.9999; both kernels)
+#
+# ---- Accuracy, build (B), earlier run with its "v6f" (with the fix = today's v6fp) ----
+# Same values as build (A) in every column reported (|Δz| and Bulk 128 were not reported for this run).
 β (γ)	Pulse 128 Norm	Pulse 512 (4-Vel)	Pulse 2048 (4-Vel)
 0.8000c (1.7)	0.01%	0.00%	0.00%
 0.9500c (3.2)	0.02%	0.00%	0.00%
@@ -13,14 +35,17 @@
 γ=70.7 convergence (M=512 → 1024 → 2048):
   Spline Float64 vs Exact: 0.0236% | 0.00602% | 0.00166%
   GPU Float32 vs Exact:    0.02%   | 0.01%    | 0.00%
-# Metal check: the GPU error equals the float64 evaluation of the same spline to the printed digits, as in
-# SwiftShader (IEEE float32; results/suite_swiftshader_v6_2.tsv). The float32 code of v6f (default) is the same
-# as this build's apart from the field-floor fix, which F32N_NOFIX removes.
 #
-# Frame rate, same machine and browser, 2D app, 32 sources, default scene, Path: known (exact knots):
-# kernel	defines	fps
-# v5	(original kernel)	120	(the display refresh rate; likely capped)
-# v6	(none)	43
-# v6fp (v6f precise)	F32N	33	(0.77x v6: the field-floor fix costs ~23% of the frame rate)
-# v6f (default)	F32N F32N_NOFIX	42	(~v6; SwiftShader's 0.55x frame-time ratio did not carry over)
+# Metal check: for both kernels the GPU error at γ = 70.7 agrees with the float64 evaluation of the same spline to the
+# printed digits, as in SwiftShader (IEEE float32; results/suite_swiftshader_v6_2.tsv). So the incremental root, which
+# carries no compiler barrier, survives Metal's reassociation. The field-floor fix (exact products, BAR-guarded) is not
+# exercised by these histories.
+#
+# ---- Frame rate, same machine and browser, 2D app, 32 sources, default scene, Path: known (exact knots) ----
+# kernel	defines	fps	build
+# v5	(original kernel)	120	(B)	(likely capped at the display refresh rate)
+# v6	(none)	43	(B)
+# v6fp (v6f precise)	F32N	33	(B), measured as its "v6f" (with the fix)	(0.77x v6: the field-floor fix costs ~23% of the frame rate)
+# v6f (default)	F32N F32N_NOFIX	42	(C)	(~v6; SwiftShader's ~0.5x frame-time ratio did not carry over)
+# Re-measured on the v6.2.0 build: TODO
 # Not directly comparable with results/suite_m1max_web_kform.txt (v6 62 fps): Chrome, commit 06edf87.

@@ -10,7 +10,8 @@ license: MIT
 repository-code: "https://github.com/timsdsdio/hopf-hough"
 url: "https://timsdsdio.github.io/hopf-hough/"
 version: 6.2.0
-date-released: "2026-10-23"
+# TODO(release): set to the v6.2.0 release date (YYYY-MM-DD) and uncomment before tagging.
+# date-released: "YYYY-MM-DD"
 identifiers:
   - type: doi
     value: "10.5281/zenodo.23601496"

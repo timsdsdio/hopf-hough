@@ -415,7 +415,8 @@ async function runVerification() {
     }
   }
   lastSuite = { generated: new Date().toISOString(), renderer: rendererName(), kernel, settings: { production: prod, legacy }, rows };
-  const pct = (v: number) => (v < 0.001 ? v.toExponential(1) : v.toPrecision(3)) + '%';
+  // Error percentages to 3 significant figures.
+  const pct = (v: number) => (v < 0.001 ? v.toExponential(2) : v.toPrecision(3)) + '%';
   let html = `<div class="text-emerald-400 mb-1">GPU readback vs exact Liénard–Wiechert (no softening), synchrotron pulse sweep, 256 observers · kernel: ${kernel} · renderer: ${rendererName()}</div>`;
   html += '<table class="report-table w-full"><tr><th>β</th><th>γ</th><th>M_T</th><th>production</th><th>production, df64 query</th><th>legacy algorithm</th><th>ring (production)</th></tr>';
   for (const r of rows) {
