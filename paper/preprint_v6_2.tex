@@ -301,7 +301,7 @@ $M_T$ (outermost shell) & $R = 1.15$ & $R = 3$ & $R = 10$ & $R = 30$ & $R = 100$
 2048 (3520) & $6.4\times10^{-5}$\% (0) & 0.0019\% (0) & 0.010\% (0) & 0.18\% (64) & $>100$\% (64) & $>100$\% (64) \\
 \bottomrule
 \end{tabular}}
-\caption{Circular orbit, $\beta = 0.9$, \textbf{version-6 kernel}: relative $L_2$ error on rings of radius $R$ around the orbit centre, and in parentheses the number of the 64 observers marked by the validity indicator of Section~\ref{sec:validity}. The first column gives the outermost shell; the ring buffer holds 260 length units of history. Across all far-field and straight-line cases run ($\beta = 0.5$ and $0.9$; $M_T = 128$, 512, 2048; taper on and off), the $L_2$ error over unmarked observers on a ring is at most 0.37\%, and the worst single unmarked observer is 0.68\%. \TODO{re-measure with v6f, or keep as v6}}
+\caption{Circular orbit, $\beta = 0.9$, \textbf{version-6 kernel}: relative $L_2$ error on rings of radius $R$ around the orbit centre, and in parentheses the number of the 64 observers marked by the validity indicator of Section~\ref{sec:validity}. The first column gives the outermost shell; the ring buffer holds 260 length units of history. Across all far-field and straight-line cases run ($\beta = 0.5$ and $0.9$; $M_T = 128$, 512, 2048; taper on and off), the $L_2$ error over unmarked observers on a ring is at most 0.37\%, and the worst single unmarked observer is 0.68\%. v6f gives the same values to within float32 noise (largest change $1.5\times10^{-4}\to6.4\times10^{-5}$ at $R=1.15$, $M=2048$; \texttt{results/tables\_far\_v6f.json}): at $\beta = 0.9$ this table is set by interpolation of the history, not by arithmetic}
 \label{tab:far}
 \end{table}
 
