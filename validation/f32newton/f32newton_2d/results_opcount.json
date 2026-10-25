@@ -1,0 +1,102 @@
+{
+ "ops": {
+  "root_full": 519,
+  "root_fast": 355,
+  "knot_f32_v6": 11,
+  "knot_f32_v6f": 7,
+  "inc_cubic": 57,
+  "inc_quint": 87,
+  "newton": 25,
+  "evalSeg": 110,
+  "segCoef": 150,
+  "segCoef_f32n_extra": 30,
+  "kernel": 150
+ },
+ "rows": [
+  {
+   "case": "sweep gamma 71 M512 ring (readback)",
+   "v6": 13890.7578125,
+   "v6f": 2866.7734375
+  },
+  {
+   "case": "sweep gamma 71 M2048 ring (readback)",
+   "v6": 14647.7421875,
+   "v6f": 2921.23828125
+  },
+  {
+   "case": "sweep gamma 71 M512 known (readback)",
+   "v6": 14061.921875,
+   "v6f": 3112.2109375
+  },
+  {
+   "case": "sweep gamma 224 M2048 known (readback)",
+   "v6": 15347.7265625,
+   "v6f": 3716.80078125
+  },
+  {
+   "case": "sweep gamma 224 M2048 live (readback)",
+   "v6": 15286.4140625,
+   "v6f": 3333.5390625
+  },
+  {
+   "case": "32 sources M128 known display",
+   "v6": 2222.507080078125,
+   "v6f": 1794.080078125
+  },
+  {
+   "case": "32 sources M128 known full",
+   "v6": 6962.12744140625,
+   "v6f": 2193.866943359375
+  },
+  {
+   "case": "32 sources M128 live display",
+   "v6": 2226.095947265625,
+   "v6f": 1691.1953125
+  },
+  {
+   "case": "32 sources M128 live full",
+   "v6": 6973.14453125,
+   "v6f": 2077.8828125
+  },
+  {
+   "case": "32 sources M512 known display",
+   "v6": 2231.16845703125,
+   "v6f": 1800.32958984375
+  },
+  {
+   "case": "32 sources M512 known full",
+   "v6": 7972.66455078125,
+   "v6f": 2197.27099609375
+  },
+  {
+   "case": "32 sources M512 live display",
+   "v6": 2233.56103515625,
+   "v6f": 1700.0625
+  },
+  {
+   "case": "32 sources M512 live full",
+   "v6": 7988.711181640625,
+   "v6f": 2085.4375
+  },
+  {
+   "case": "32 sources M2048 known display",
+   "v6": 2252.8529052734375,
+   "v6f": 1810.9854736328125
+  },
+  {
+   "case": "32 sources M2048 known full",
+   "v6": 9019.845458984375,
+   "v6f": 2215.5889892578125
+  },
+  {
+   "case": "32 sources M2048 live display",
+   "v6": 2256.0230712890625,
+   "v6f": 1710.7073974609375
+  },
+  {
+   "case": "32 sources M2048 live full",
+   "v6": 9029.425537109375,
+   "v6f": 2099.2899169921875
+  }
+ ]
+}
