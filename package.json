@@ -29,7 +29,9 @@
     "test": "node --test tests/unit/*.test.mjs",
     "test:gpu": "node tests/gpu/run.mjs",
     "test:legacy-full": "node tests/gpu/legacy_regression.mjs dist/hopf-hough.iife.js",
-    "tables": "node tests/gpu/tables.mjs all"
+    "tables": "node tests/gpu/tables.mjs all",
+    "table2": "node tests/gpu/table2_v6_2.mjs",
+    "suite:web": "node tests/gpu/suite_web.mjs"
   },
   "keywords": [
     "electromagnetism",

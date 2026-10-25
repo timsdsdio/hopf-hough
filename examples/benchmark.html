@@ -16,7 +16,7 @@
 <body>
 <h1>GPU benchmark (same problems as the PyCharge comparison)</h1>
 <p>Charges on circular orbits (radius 0.85, c = 2.35), exact retarded field E on a 256 × 256 grid over [−3, 3]², checked against the
-double-precision reference. Compare with <code>validation/benchmarks/run_benchmark.py</code>, which runs PyCharge and a JAX port of the same method.</p>
+double-precision reference (kernel v6f; add <code>?kernel=v6</code> for v6). Compare with <code>validation/benchmarks/run_benchmark.py</code>, which runs PyCharge and a JAX port of the same method.</p>
 <button id="go">Run</button> <span id="status"></span>
 <table id="out"><tr><th>sources</th><th>β</th><th>M_T</th><th>seconds per grid</th><th>points × sources / s</th><th>rel. L2 error</th></tr></table>
 <p>Copy this into an issue or message:</p>
@@ -34,9 +34,11 @@ double-precision reference. Compare with <code>validation/benchmarks/run_benchma
     status.textContent = 'starting…'; status.style.color = '';
     await ready;
     const H = window.HopfHough;
-    const solver = new H.GpuSolver(document.createElement('canvas')), gl = solver.gl;
+    // Kernel: v6f (default) or ?kernel=v6
+    const kernel = new URLSearchParams(location.search).get('kernel') === 'v6' ? 'v6' : 'v6f';
+    const solver = new H.GpuSolver(document.createElement('canvas'), H.kernelShaders(kernel)), gl = solver.gl;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    const out = { renderer: String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)), userAgent: navigator.userAgent, rows: [] };
+    const out = { kernel, renderer: String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)), userAgent: navigator.userAgent, rows: [] };
     const N = 256, pts = [];
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) pts.push({ x: -3 + 6 * i / (N - 1), y: -3 + 6 * j / (N - 1) });
     const cases = [[1, 0.9], [1, 0.99], [1, 0.999], [1, 0.9999], [16, 0.9], [64, 0.9], [256, 0.9]];
@@ -63,7 +65,7 @@ double-precision reference. Compare with <code>validation/benchmarks/run_benchma
       out.rows.push(row);
       document.getElementById('out').insertAdjacentHTML('beforeend', `<tr><td>${n}</td><td>${beta}</td><td>${M}</td><td>${row.seconds.toFixed(4)}</td><td>${(pts.length * n / row.seconds).toExponential(2)}</td><td>${row.rel_l2.toExponential(2)}</td></tr>`);
     }
-    status.textContent = 'done · ' + out.renderer;
+    status.textContent = 'done · kernel ' + kernel + ' · ' + out.renderer;
     document.getElementById('json').textContent = JSON.stringify(out, null, 1);
   };
 </script>

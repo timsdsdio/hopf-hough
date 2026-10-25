@@ -4,6 +4,8 @@ All numbers are relative L2 errors of GPU readback against the exact Liénard–
 
 Numbers after v6.0.0 include the κ-form radiation term and the Newton fix; preprint v6 corresponds to tag v6.0.0 (doi:10.5281/zenodo.23601496).
 
+Sections 1–6 are the **v6** kernel (`V6_SHADERS`, the app's *Kernel: v6*), which v6.2 leaves bit-identical. Since v6.2 the default kernel of the app and the library is **v6f**; section 7 describes it, corrects the attribution of v6's remaining error at γ ≥ 71, and gives both kernels side by side ([results/table2_v6_2.tsv](../results/table2_v6_2.tsv)).
+
 ## 1. Accuracy across Lorentz factors
 
 Synchrotron orbit (radius 0.85), 256 observers crossing the pulse at retarded radius 1.15 (half-width 4γ⁻³ rad), plus a 64-point ring at the same radius.
@@ -308,7 +310,43 @@ The saving is large near the charge and on the sweep at moderate γ, and shrinks
 
 Not done: closed-form fields for uniform and hyperbolic motion (the app has no hyperbolic preset, and its straight-line preset restarts every 4.4 time units, so the history is not a single uniform motion).
 
+## 7. The v6f kernel (default since v6.2)
+
+v6f is the v6 shader source compiled with `#define F32N` (`V6F_SHADERS`, `V6F_KNOWN_PATH_SHADERS`; in the app, *Kernel: v6f*). Every change is inside `#ifdef F32N`, so the v6 and v5 programs are unchanged (tests/gpu/v6f.mjs checks v6 bit for bit against the v6.1 shader and app kept in reference/; web_app.mjs checks v5 against the original file).
+
+**What changes.**
+1. *Chord deficit from the CPU.* For each segment the CPU forms D = 1 − |v_chord|² in float64 from the stored hi + lo knots, with the shader's chord clamp, and stores it per knot in the free channel `u_texPosLo.z` (library: `ShellHistory.emitDch`; app: the texture upload).
+2. *Float32 incremental root inside the segment.* Only f₁ = R₁ − |x − z₁| and d₁ = x − z₁ at the bracketing knot are double-float. Inside the segment f(s) = f₁ + [ΔR − ℓ] + [ℓ + L₁ − L] with ℓ = |Δz|, L₁ = |d₁|, L = |d₁ − Δz|. Both brackets are non-negative and are formed without cancellation: ΔR − ℓ = ΔR·D(s)/(1 + ℓ/ΔR), where D(s), the deficit of the mean velocity over [0, s], is an affine form in per-segment deficits (cubic segments: points v_chord, −β₁, −β₂; quintic known-path segments: v_chord, Q₀, Q₁, Q₃, Q₄), and ℓ + L₁ − L = 2(d₁×Δz)²/((ℓL₁ − d₁·Δz)(ℓ + L₁ + L)) when d₁·Δz ≤ 0 (the well-conditioned denominator for the shader's time direction, R into the past), else 2(ℓL₁ + d₁·Δz)/(ℓ + L₁ + L). These are plain float32 sums of non-negative terms and need no reassociation guard; every double-float operation keeps its `BAR()`.
+3. *Float32 knot bisection with a double-float bracket check.* The knot search runs in float32 on the high parts; f and d are then evaluated in double-float at both bracket knots, and the bracket steps outward if a float32 sign was wrong. In the 18 cases checked during development this gave output identical to double-float bisection (max difference 0).
+4. *Field floor fix* (γ-gated). Every cross or dot product that cancels near the pulse crest (the root's d₁ × Δz, sin(β̂, n), n·a) is taken against the double-float separation d₁ with exact products, once per pixel and source: the spline is linear in (chord, b₁, b₂, acc₁, acc₂), so d₁ × z′(s) and d₁ × Δz(s) are Bernstein sums of per-segment scalars. It runs only where |u| > 4 at a knot of the segment (γ > 4.1, proper-velocity storage). `#define F32N_NOFIX` removes it.
+
+**Corrected error attribution.** The preprint (v6.1, §2.4) attributes the remaining float32 error to the root-function arithmetic, removed by double-float evaluation of f at the knots, with everything else in float32. That is not what limits v6 at γ ≥ 71. v6's residual error there is the **float32 in-segment chord deficit**: the in-segment offset Δz and ΔR are float32 Hermite evaluations, so 1 − |Δz/ΔR|² carries a relative error ~εγ², and the root moves by ~εγ²·ΔR. The double-float knot arithmetic never removed it. In development diagnostics, v6f with the naive float32 deficit 1 − |Δz/ΔR|² reproduced v6's error in every case (e.g. 1.05e-2 relative at γ = 224, M = 512, known path), while v6f with the CPU deficit reaches the interpolation level; double-float and float32 knot bisection gave identical v6f output. So the v6 rows of Table 2 at γ = 70.7 and 224 are set by this floor, not by interpolation of the history. The app's suite shows it directly: at γ = 70.7 the v6f GPU error equals the float64 evaluation of the same spline (0.0236% / 0.00607% / 0.00160% vs 0.0236% / 0.00602% / 0.00166% at M = 512 / 1024 / 2048), where v6 gives 0.0363% / 0.0158% / 0.00703% ([results/suite_swiftshader_v6_2.tsv](../results/suite_swiftshader_v6_2.tsv)).
+
+**v6f's remaining floor**, before the field floor fix, was flat in M at about 0.6 × 3εγ (known path: 9e-6 relative at γ = 71, 2.3e-5 at γ = 224). It is float32 rounding of **directions**: near the crest n, β̂ and a are parallel to within 1/γ, so a rotation of ε in any one of them is a relative error ~εγ in 1 − n·β̂, in n·a and in the root's d₁ × Δz. Five or six stages contribute comparable amounts, so no single stage promoted to float64 helps by more than ~20%; the formula for κ, the 1/R factors and the κ-form radiation term together contribute at most a tenth (CPU emulation during development). Fix 4 above removes it: 2–17× lower known-path error, down to the float32 storage of u and acc (0.4–8e-6 relative), which it does not fix. The ring and live paths are interpolation-limited and change only within float32 noise (0.9–1.2×).
+
+**Accuracy, v6 → v6f** (pulse sweep, 256 observers, no softening, SwiftShader; library readback, tests/gpu/table2_v6_2.mjs → [results/table2_v6_2.tsv](../results/table2_v6_2.tsv); the app gives the same values to the printed digits, tests/gpu/v6f.mjs). *ring* = ring-buffer history (as section 1); *known* = known-path shells (section 6). float32 observers up to γ = 70.7, df64 observers at γ = 224.
+
+| β | γ | M | ring v6 | ring v6f | known v6 | known v6f |
+|---|---|---|---|---|---|---|
+| 0.99 | 7.1 | 128 | 0.038% | 0.038% | 1.4e-4% | 3.3e-5% |
+| 0.99 | 7.1 | 2048 | 1.8e-4% | 1.5e-4% | 7.8e-5% | 2.9e-5% |
+| 0.999 | 22.4 | 128 | 0.13% | 0.13% | 0.0053% | 4.2e-5% |
+| 0.999 | 22.4 | 512 | 0.0077% | 0.0076% | 9.3e-4% | 6.0e-5% |
+| 0.999 | 22.4 | 2048 | 5.4e-4% | 4.8e-4% | 3.5e-4% | 5.2e-5% |
+| 0.9999 | 70.7 | 128 | 0.37% | 0.39% | 0.13% | 1.1e-4% |
+| 0.9999 | 70.7 | 512 | 0.036% | 0.024% | 0.036% | 1.4e-4% |
+| 0.9999 | 70.7 | 2048 | 0.0070% | 0.0016% | 0.0072% | 1.1e-4% |
+| 0.99999 | 223.6 | 128 | 6.8% | 0.58% | 4.4% | 0.0035% |
+| 0.99999 | 223.6 | 512 | 1.2% | 0.067% | 1.1% | 5.5e-4% |
+| 0.99999 | 223.6 | 2048 | 0.22% | 0.0050% | 0.28% | 4.0e-4% |
+
+At γ ≤ 3.2 the two kernels agree to float32 noise (full table in the TSV). Known-path errors at γ ≥ 22 fall 7–2000×; ring errors at γ ≥ 71 fall up to 44×, and at γ = 224 the ring is now limited by interpolation of the history, not by float32. The largest regression is the 64-point ring at radius 1.15 at γ = 70.7, M = 2048: 7.0e-5% → 1.4e-4%, at the float32 level of that test; at γ = 70.7, M = 128, ring, float32 observers the sweep goes 0.37% → 0.39% (interpolation-limited; with df64 observers 0.43% → 0.40%). After 600 live steps (the app's live path, γ = 70.7 and 224) the picture is the same as for the ring (tests/gpu/v6f.mjs). The app's own suite for all three kernels is in [results/suite_swiftshader_v6_2.tsv](../results/suite_swiftshader_v6_2.tsv).
+
+**Display path.** The rendered view uses v6's cheaper display path (u_fastRender) with the v6f root inside the segment. Frames differ from v6 by at most 1/255 in a handful of bytes (32-source ensemble, 606 × 379: 4–6 of 918,696 bytes; library, 160 × 100: 0–1 of 64,000; tests/gpu/v6f.mjs).
+
+**Cost** (SwiftShader, relative only; nothing here was measured on a real GPU). Development operation counts per pixel and source: 0.20–0.24× v6 on the readback path and an estimated 0.76–0.81× on the display path (the display figure depends on rough shared estimates). The field floor fix adds 10–15% SwiftShader frame time even where its γ gate is false for every source (SwiftShader evaluates the branch); `F32N_NOFIX` removes that. Frame time of the app's default scene (32 ensemble sources, M = 128, one run of tests/gpu/web_app.mjs): v5 1432 ms, v6 6110 ms, v6f 3405 ms (0.56× v6); known path v6 8913 ms, v6f 5137 ms (0.58×). Whether any of this shows up on an Apple M1 or other GPUs is not measured.
+
 
 ## On real hardware
 
-The in-app suite on an Apple M1 Max (Chrome 154, ANGLE → Metal), run with the v6.0.0 kernel, reproduced the v6.0.0 pulse-sweep column to within run-to-run scatter: for example 0.0089% (γ = 22.4) and 0.059% (γ = 70.7) at M = 512; full table in [results/suite_m1max.tsv](../results/suite_m1max.tsv). Before the shader guarded every double-float operation, the same GPU gave 0.29% and 11% ([results/suite_m1max_before_fix.json](../results/suite_m1max_before_fix.json)), i.e. float32 accuracy, because the Metal compiler reassociated the error-free transforms. The current kernel (κ-form radiation term, Newton fix) has not yet been re-measured on that GPU.
+The in-app suite on an Apple M1 Max (Chrome 154, ANGLE → Metal), run with the v6.0.0 kernel, reproduced the v6.0.0 pulse-sweep column to within run-to-run scatter: for example 0.0089% (γ = 22.4) and 0.059% (γ = 70.7) at M = 512; full table in [results/suite_m1max.tsv](../results/suite_m1max.tsv). Before the shader guarded every double-float operation, the same GPU gave 0.29% and 11% ([results/suite_m1max_before_fix.json](../results/suite_m1max_before_fix.json)), i.e. float32 accuracy, because the Metal compiler reassociated the error-free transforms. The current v6 kernel (κ-form radiation term, Newton fix) and the v6f kernel have not yet been measured on that GPU.

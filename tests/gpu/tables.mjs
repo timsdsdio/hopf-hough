@@ -1,8 +1,13 @@
 // Regenerates every table in the paper with the production solver (WebGL2 readback).
+// Usage: node tests/gpu/tables.mjs [which=all] [kernel=v6]. results/tables.json (preprint v6.1, README, docs/ACCURACY.md
+// sections 1-5) is the v6 kernel; pass v6f for the default kernel of the v6.2 library. The v6/v6f comparison of
+// Table 2 is tests/gpu/table2_v6_2.mjs.
 import { launch } from './browser.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 const root = new URL('../../', import.meta.url).pathname;
 const which = (process.argv[2] || 'all').split(',');
+const kernel = process.argv[3] || 'v6';
+if (!['v6', 'v6f'].includes(kernel)) throw new Error('kernel must be v6 or v6f');
 const browser = await launch();
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('pageerror', e.message));
@@ -10,12 +15,12 @@ page.on('console', (m) => console.log('[page]', m.text()));
 await page.setContent('<html><body><canvas id="c" width="64" height="64"></canvas><canvas id="l" width="64" height="64"></canvas><canvas id="r" width="640" height="400"></canvas></body></html>');
 await page.addScriptTag({ content: readFileSync(root + 'dist/hopf-hough.iife.js', 'utf8') });
 page.setDefaultTimeout(0);
-const res = await page.evaluate(async (which) => {
+const res = await page.evaluate(async ([which, kernel]) => {
   const H = HopfHough;
-  const solver = new H.GpuSolver(document.getElementById('c'), H.PRODUCTION_SHADERS);
+  const solver = new H.GpuSolver(document.getElementById('c'), H.kernelShaders(kernel));
   const B = H.gpuBackend(solver);
   const gl = solver.gl, ext = gl.getExtension('WEBGL_debug_renderer_info');
-  const out = { renderer: String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) };
+  const out = { kernel, renderer: String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) };
   const prod = { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false };
   const legacy = { ...H.DEFAULT_CONFIG, newton: 2, certMode: 0, rootMode: 0, precision: 0, betaMax: 0.99995, softEps: 0, prefilter: false };
   const kb = { 64: 8, 128: 9, 256: 10, 512: 11, 1024: 12, 2048: 13 };
@@ -168,7 +173,7 @@ const res = await page.evaluate(async (which) => {
   }
   if (has('cost')) {
     const canvas = document.getElementById('r');
-    const s2 = new H.GpuSolver(canvas, H.PRODUCTION_SHADERS);
+    const s2 = new H.GpuSolver(canvas, H.V6_SHADERS);   // the switches below are the v6 kernel's
     const cfg0 = { ...prod, mT: 512, kBin: 11 };
     const trs = Array.from({ length: 16 }, (_, i) => H.precessingEllipse({ index: i, beta: 0.8, omega: 1.6, c: cfg0.c }));
     const sim = new H.Simulation(cfg0, trs, 2.5);
@@ -183,8 +188,8 @@ const res = await page.evaluate(async (which) => {
     out.cost = variants.map(([name, c]) => ({ name, ms: [time(c), time(c), time(c)] }));
   }
   return out;
-}, which);
-const path = root + 'results/tables' + (which.includes('all') ? '' : '_' + which.join('_')) + '.json';
+}, [which, kernel]);
+const path = root + 'results/tables' + (which.includes('all') ? '' : '_' + which.join('_')) + (kernel === 'v6' ? '' : '_' + kernel) + '.json';
 writeFileSync(path, JSON.stringify(res, null, 2));
 console.log('wrote', path);
 await browser.close();

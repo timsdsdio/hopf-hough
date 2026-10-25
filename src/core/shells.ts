@@ -74,6 +74,12 @@ export class ShellHistory {
   readonly emitJx = new Float32Array(MAX_M_T);
   readonly emitJy = new Float32Array(MAX_M_T);
   readonly emitExact = new Float32Array(MAX_M_T);
+  /**
+   * v6f kernel: chord deficit 1 − |v_chord|² of segment m → m+1, in float64 from the stored hi+lo knots with the
+   * shader's chord clamp (|v_chord| ≤ betaMax), rounded to float32 once; the last knot repeats the previous value.
+   * Uploaded in the free channel u_texPosLo.z (only for the v6f kernel; v6 and v5 ignore it).
+   */
+  readonly emitDch = new Float32Array(MAX_M_T);
   readonly emitX64 = new Float64Array(MAX_M_T);
   readonly emitY64 = new Float64Array(MAX_M_T);
   readonly emitUx64 = new Float64Array(MAX_M_T);
@@ -162,6 +168,7 @@ export class ShellHistory {
           this.emitY[m + 1] = f32(ny); this.emitYlo[m + 1] = f32(ny - this.emitY[m + 1]);
         }
       }
+      this.fillChordDeficit(M, maxSub);
       return;
     }
     // Legacy float32 clamp (reproduces the original solver).
@@ -181,6 +188,18 @@ export class ShellHistory {
         this.emitYlo[m + 1] = 0;
       }
     }
+    this.fillChordDeficit(M, cfg.betaMax);
+  }
+
+  /** Chord deficit per knot for the v6f kernel (see emitDch); the same formula as web/index.html. */
+  fillChordDeficit(M: number, betaMax: number): void {
+    for (let m = 0; m < M - 1; m++) {
+      const dx = (this.emitX[m + 1] - this.emitX[m]) + (this.emitXlo[m + 1] - this.emitXlo[m]);
+      const dy = (this.emitY[m + 1] - this.emitY[m]) + (this.emitYlo[m + 1] - this.emitYlo[m]);
+      const v = Math.min(Math.hypot(dx, dy) / Math.max(1e-6, this.emitR[m + 1] - this.emitR[m]), betaMax);
+      this.emitDch[m] = (1 - v) * (1 + v);
+    }
+    if (M > 1) this.emitDch[M - 1] = this.emitDch[M - 2];
   }
 
   /**
@@ -235,5 +254,6 @@ export class ShellHistory {
         this.emitExact[m] = 0; this.emitExact[m + 1] = 0;
       }
     }
+    this.fillChordDeficit(M, maxSub);
   }
 }

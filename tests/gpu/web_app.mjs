@@ -1,10 +1,12 @@
-// Checks for the author's app (web/index.html, served at the site root) with the v6 kernel ported in.
-//  1. loads without console errors; the kernel and mask buttons work;
+// Checks for the author's app (web/index.html, served at the site root) with the v6 and v6f kernels ported in.
+//  1. loads without console errors on the default kernel (v6f); the kernel button cycles v6f -> v6 -> v5 -> v6f;
+//     the mask button works;
 //  2. the v5 kernel is bit-identical to the original file (git HEAD~ version kept in reference/web_original.html):
 //     same field readback on a grid and same rendered pixels;
 //  3. the v6 kernel reproduces the production accuracy on the pulse sweep (no softening);
 //  4. known-path mode (exact knots, C2 quintic): pulse sweep accuracy, ring accuracy after live steps, drag hand-off;
-//  5. relative frame time v6 / v5 / known path (software rendering: relative only).
+//  5. relative frame time v5 / v6 / v6f / known path (software rendering: relative only).
+// v6f accuracy, v6 bit-identity to v6.1 and v6f display pixels are in v6f.mjs.
 import { launch } from './browser.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -67,8 +69,8 @@ const SWEEP = (kernel, beta, M, kBin, known = false, live = 0) => `(() => {
 
 // Grab source 0 of the orbit preset, drag it on a jerky path, release; once it has rejoined its orbit, the field in
 // known-path mode must match the same run in ring mode (the dragged stretch of history comes from the ring in both).
-const HANDOFF = (known) => `(() => {
-  state.paused = true; state.kernel = 'v6'; selectKernel(); state.knownPath = ${known};
+const HANDOFF = (known, kernel = 'v6') => `(() => {
+  state.paused = true; state.kernel = '${kernel}'; selectKernel(); state.knownPath = ${known};
   state.numParticles = 4; state.motionMode = 'synchrotron'; state.beta = 0.8; state.mT = 512; state.kBin = 11;
   state.time = 2.5; state.softEps = 0.02; reseedAllSources();
   const dt = 0.45 * DT_STEP, s0 = state.sources[0];
@@ -112,15 +114,19 @@ export async function runWebAppChecks(log) {
 
     const app = await open(browser, APP);
     check(app.errors.length === 0, `web app loads without errors${app.errors.length ? ': ' + app.errors.join('; ') : ''}`);
-    const kernelAtLoad = await app.page.evaluate('state.kernel');
-    check(kernelAtLoad === 'v6', `web app starts on the v6 kernel (${kernelAtLoad})`);
-    await app.page.evaluate(() => document.getElementById('btn-kernel').click());
-    const k2 = await app.page.evaluate('state.kernel + "|" + document.getElementById("btn-kernel").textContent.trim()');
-    await app.page.evaluate(() => document.getElementById('btn-kernel').click());
+    const kState = 'state.kernel + "|" + document.getElementById("btn-kernel").textContent.trim()';
+    const kernelAtLoad = await app.page.evaluate(kState);
+    check(kernelAtLoad.startsWith('v6f|Kernel: v6f'), `web app starts on the v6f kernel (${kernelAtLoad})`);
+    const cycle = [];
+    for (let i = 0; i < 3; i++) {
+      await app.page.evaluate(() => document.getElementById('btn-kernel').click());
+      cycle.push(await app.page.evaluate(kState));
+    }
     await app.page.evaluate(() => document.getElementById('btn-mask').click());
     const m = await app.page.evaluate('state.showMask');
     await app.page.evaluate(() => document.getElementById('btn-mask').click());
-    check(k2.startsWith('v5|Kernel: v5') && m === true, `kernel and mask buttons toggle (${k2}, mask ${m})`);
+    const want = ['v6|Kernel: v6', 'v5|Kernel: v5', 'v6f|Kernel: v6f'];
+    check(cycle.every((c, i) => c.startsWith(want[i])) && m === true, `kernel button cycles v6f -> v6 -> v5 -> v6f (${cycle.join(', ')}); mask toggles (${m})`);
 
     for (const mode of MODES) {
       const A = a[mode], b = await app.page.evaluate(SNAPSHOT(mode));
@@ -147,17 +153,24 @@ export async function runWebAppChecks(log) {
     const el = await app.page.evaluate(SWEEP('v6', 0.999, 512, 11, false, 600));
     check(el < 0.02, `v6 ring pulse sweep after 600 live steps, β=0.999, M=512: ${el.toPrecision(3)}% < 0.02%`);
 
-    const hA = await app.page.evaluate(HANDOFF(true)), hB = await app.page.evaluate(HANDOFF(false));
-    let num = 0, den = 0;
-    hA.e.forEach((v, j) => { num += (v[0] - hB.e[j][0]) ** 2 + (v[1] - hB.e[j][1]) ** 2; den += hB.e[j][0] ** 2 + hB.e[j][1] ** 2; });
-    const rel = Math.sqrt(num / den);
-    check(hA.rejoin > 0 && hA.rejoin === hB.rejoin && rel < 1e-3,
-      `drag hand-off: rejoins at step ${hA.rejoin} (ring mode ${hB.rejoin}); known-path vs ring field ${rel.toExponential(2)} RMS < 1e-3; ${hA.exact}/512 exact knots`);
+    const relRms = (a, b) => { let num = 0, den = 0; a.forEach((v, j) => { num += (v[0] - b[j][0]) ** 2 + (v[1] - b[j][1]) ** 2; den += b[j][0] ** 2 + b[j][1] ** 2; }); return Math.sqrt(num / den); };
+    const hand = {};
+    for (const kernel of ['v6', 'v6f']) {
+      const hA = await app.page.evaluate(HANDOFF(true, kernel)), hB = await app.page.evaluate(HANDOFF(false, kernel));
+      const rel = relRms(hA.e, hB.e);
+      hand[kernel] = hA;
+      check(hA.rejoin > 0 && hA.rejoin === hB.rejoin && rel < 1e-3,
+        `drag hand-off (${kernel}): rejoins at step ${hA.rejoin} (ring mode ${hB.rejoin}); known-path vs ring field ${rel.toExponential(2)} RMS < 1e-3; ${hA.exact}/512 exact knots`);
+    }
+    const relK = relRms(hand.v6f.e, hand.v6.e);
+    check(hand.v6f.rejoin === hand.v6.rejoin && relK < 1e-5, `drag hand-off, v6f vs v6 field after rejoin (known path): ${relK.toExponential(2)} RMS < 1e-5`);
 
     const t5 = await app.page.evaluate(FRAMES('v5'));
     const t6 = await app.page.evaluate(FRAMES('v6'));
+    const tf = await app.page.evaluate(FRAMES('v6f'));
     const tk = await app.page.evaluate(FRAMES('v6', true));
-    log(`info frame time, default scene (32 sources, M=128), software rendering: v5 ${t5.toFixed(0)} ms, v6 ${t6.toFixed(0)} ms (ratio ${(t6 / t5).toFixed(2)}), v6 known path ${tk.toFixed(0)} ms (ratio ${(tk / t5).toFixed(2)})`);
+    const tfk = await app.page.evaluate(FRAMES('v6f', true));
+    log(`info frame time, default scene (32 sources, M=128), software rendering (relative only): v5 ${t5.toFixed(0)} ms, v6 ${t6.toFixed(0)} ms (ratio ${(t6 / t5).toFixed(2)}), v6f ${tf.toFixed(0)} ms (${(tf / t5).toFixed(2)}), known path v6 ${tk.toFixed(0)} ms (${(tk / t5).toFixed(2)}), v6f ${tfk.toFixed(0)} ms (${(tfk / t5).toFixed(2)})`);
   } finally {
     await browser.close();
   }

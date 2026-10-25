@@ -8,7 +8,7 @@ import {
   expressionTrajectory, csvTrajectory, assertSubluminal, shellRadius,
   type Kinematics, type SolverConfig, type Trajectory, type CaseResult,
 } from '../src/core/index.js';
-import { GpuSolver, PRODUCTION_SHADERS, gpuBackend } from '../src/gpu/index.js';
+import { GpuSolver, kernelShaders, gpuBackend, type KernelName } from '../src/gpu/index.js';
 
 // ---------------------------------------------------------------- DOM helpers
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -41,6 +41,9 @@ const ui = {
 
 let sim: Simulation;
 let solver: GpuSolver | null = null;
+/** Production kernel: v6f (default) or v6 (?kernel=v6). */
+let kernel: KernelName = 'v6f';
+let benchV6: GpuSolver | null = null;
 let trajectories: Trajectory[] = [];
 let reseedPeriod = 0;           // for linear/hyperbolic: reseed so charges re-enter the view
 let reseedClock = 0;
@@ -191,7 +194,7 @@ const pxPerUnit = () => H / (2 * ui.view.halfH);
 // ---------------------------------------------------------------- GPU
 function initGpu() {
   try {
-    solver = new GpuSolver(glCanvas, PRODUCTION_SHADERS);
+    solver = new GpuSolver(glCanvas, kernelShaders(kernel));
   } catch (e) {
     const el = $('gl-error');
     el.textContent = 'This tool needs WebGL2 with float render targets (EXT_color_buffer_float): ' + (e as Error).message;
@@ -411,9 +414,9 @@ async function runVerification() {
       rows.push({ beta: b, gamma: 1 / Math.sqrt(1 - b * b), M, prod: p, prodDf: pd, legacy: l });
     }
   }
-  lastSuite = { generated: new Date().toISOString(), renderer: rendererName(), settings: { production: prod, legacy }, rows };
+  lastSuite = { generated: new Date().toISOString(), renderer: rendererName(), kernel, settings: { production: prod, legacy }, rows };
   const pct = (v: number) => (v < 0.001 ? v.toExponential(1) : v.toPrecision(3)) + '%';
-  let html = `<div class="text-emerald-400 mb-1">GPU readback vs exact Liénard–Wiechert (no softening), synchrotron pulse sweep, 256 observers · renderer: ${rendererName()}</div>`;
+  let html = `<div class="text-emerald-400 mb-1">GPU readback vs exact Liénard–Wiechert (no softening), synchrotron pulse sweep, 256 observers · kernel: ${kernel} · renderer: ${rendererName()}</div>`;
   html += '<table class="report-table w-full"><tr><th>β</th><th>γ</th><th>M_T</th><th>production</th><th>production, df64 query</th><th>legacy algorithm</th><th>ring (production)</th></tr>';
   for (const r of rows) {
     html += `<tr><td>${r.beta}</td><td>${r.gamma.toFixed(1)}</td><td>${r.M}</td><td class="text-emerald-300">${pct(r.prod.shockL2)}</td><td>${pct(r.prodDf.shockL2)}</td><td class="text-slate-400">${r.legacy ? pct(r.legacy.shockL2) : '—'}</td><td>${pct(r.prod.bulkL2)}</td></tr>`;
@@ -434,27 +437,36 @@ function rendererName() {
 // ---------------------------------------------------------------- benchmark
 function benchmark() {
   if (!solver) return;
-  const gl = solver.gl;
-  const sync = () => { const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
-  const time = (c: SolverConfig, frames: number) => {
-    solver!.upload(sim.shellHistories, c.mT);
-    solver!.render(W, H, c, { u_channel: 0, u_showWavePool: true, u_showImpostors: false, u_showMask: false, u_viewCenter: [ui.view.cx, ui.view.cy] }, { u_aspect: aspect(), u_viewHalfHeight: ui.view.halfH, u_time: sim.time, u_gain: 1, u_maskThreshold: 1.5 });
-    sync();
+  // The precision / certificate / root-search switches are those of the v6 kernel: run them on a v6 solver
+  // (own canvas and context) when the main kernel is v6f.
+  if (kernel === 'v6f' && !benchV6) {
+    try { benchV6 = new GpuSolver(document.createElement('canvas'), kernelShaders('v6')); } catch { benchV6 = null; }
+  }
+  const v6s = kernel === 'v6' ? solver : benchV6;
+  const time = (c: SolverConfig, frames: number, s: GpuSolver) => {
+    const cv = s.gl.canvas as HTMLCanvasElement;
+    if (s !== solver && (cv.width !== W || cv.height !== H)) { cv.width = W; cv.height = H; }
+    const sg = s.gl, sSync = () => { const px = new Uint8Array(4); sg.readPixels(0, 0, 1, 1, sg.RGBA, sg.UNSIGNED_BYTE, px); };
+    s.upload(sim.shellHistories, c.mT);
+    s.render(W, H, c, { u_channel: 0, u_showWavePool: true, u_showImpostors: false, u_showMask: false, u_viewCenter: [ui.view.cx, ui.view.cy] }, { u_aspect: aspect(), u_viewHalfHeight: ui.view.halfH, u_time: sim.time, u_gain: 1, u_maskThreshold: 1.5 });
+    sSync();
     const t0 = performance.now();
-    for (let f = 0; f < frames; f++) solver!.render(W, H, c, {}, {});
-    sync();
+    for (let f = 0; f < frames; f++) s.render(W, H, c, {}, {});
+    sSync();
     return (performance.now() - t0) / frames;
   };
-  const variants: [string, Partial<SolverConfig>][] = [
-    ['production (double-float, |z′|² certificate, knots + 3 Newton)', {}],
-    ['float32 root, |z′|² certificate, knots + 3 Newton', { precision: 0 }],
-    ['legacy algorithm (float32, Theorem 1, spline bisection + 2 Newton)', { precision: 0, certMode: 0, rootMode: 0, newton: 2 }],
+  const variants: [string, Partial<SolverConfig>, GpuSolver | null][] = [
+    [kernel === 'v6f' ? 'production, v6f (float32 incremental root, CPU chord deficit, float32 knot search + df64 check)' : 'production, v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, solver],
+    ...(kernel === 'v6f' ? [['v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, v6s] as [string, Partial<SolverConfig>, GpuSolver | null]] : []),
+    ['v6, float32 root, |z′|² certificate, knots + 3 Newton', { precision: 0 }, v6s],
+    ['legacy algorithm (v6 switches: float32, Theorem 1, spline bisection + 2 Newton)', { precision: 0, certMode: 0, rootMode: 0, newton: 2 }, v6s],
   ];
   const frames = 5;
   const n = sim.sources.length;
   let html = `<div class="text-emerald-400 mb-1">Frame time at ${W}×${H} px, ${n} sources, M_T = ${cfg.mT} · renderer: ${rendererName()}</div><table class="report-table w-full"><tr><th>variant</th><th>ms/frame</th><th>pixel·source evaluations / s</th></tr>`;
-  for (const [name, over] of variants) {
-    const ms = time({ ...cfg, ...over }, frames);
+  for (const [name, over, s] of variants) {
+    if (!s) continue;
+    const ms = time({ ...cfg, ...over }, frames, s);
     html += `<tr><td>${name}</td><td>${ms.toFixed(1)}</td><td>${((W * H * n) / (ms / 1000)).toExponential(2)}</td></tr>`;
   }
   html += '</table><div class="mt-2 text-slate-400">Software renderers (SwiftShader) are far slower than real GPUs; compare variants, not absolute numbers.</div>';
@@ -606,7 +618,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 
-/** Shareable settings: ?scenario=orbit&beta=0.99&n=1&mt=2048&omega=1.6&eps=0 */
+/** Shareable settings: ?scenario=orbit&beta=0.99&n=1&mt=2048&omega=1.6&eps=0&kernel=v6 */
 function readUrlParams() {
   const q = new URLSearchParams(location.search);
   const num = (k: string) => (q.has(k) && Number.isFinite(+q.get(k)!) ? +q.get(k)! : null);
@@ -618,6 +630,7 @@ function readUrlParams() {
   const e = num('eps'); if (e !== null && e >= 0) cfg.softEps = e;
   const mt = num('mt'); const kb: Record<number, number> = { 128: 9, 512: 11, 1024: 12, 2048: 13 };
   if (mt !== null && kb[mt]) { cfg.mT = mt; cfg.kBin = kb[mt]; }
+  const kn = q.get('kernel'); if (kn === 'v6' || kn === 'v6f') kernel = kn;
   if (q.get('x')) ui.customX = q.get('x')!;
   if (q.get('y')) ui.customY = q.get('y')!;
   // Reflect into the controls.

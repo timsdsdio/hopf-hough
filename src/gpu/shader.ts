@@ -11,6 +11,16 @@
  *    certificate (sharper, never stricter), 2 = no limiter.
  *  - u_rootMode: 0 = legacy bisection on the spline + 2 clamped Newton steps,
  *    1 = bisection over stored knots, then safeguarded Newton inside the bracketing segment.
+ *
+ * Compile-time variants (prepended #defines; see solver.ts):
+ *  - KNOWN_PATH: C2 quintic segments + degree-8 certificate on knots flagged exact.
+ *  - F32N (kernel v6f): only f and d = x − z at the bracketing knot are double-float. Inside the segment the
+ *    root function is a float32 sum of non-negative terms, with the chord deficit 1 − |v_chord|² supplied per
+ *    knot by the CPU in float64 (u_texPosLo.z); the knot search is a float32 bisection with a double-float check
+ *    of both bracket knots; at high γ (|u| > 4) the cancelling cross/dot products of the field are taken against
+ *    the double-float separation with exact products. F32N_NOFIX removes that last part. F32N always uses the
+ *    knot search + Newton (u_rootMode is not read), so the switch study above is meant for the v6 kernel.
+ *    Without F32N the program is the v6 kernel, unchanged.
  */
 
 export const VERTEX_SHADER = `#version 300 es
@@ -29,7 +39,7 @@ out vec4 outColor;
 
 uniform sampler2D u_texPosVel;      // x_hi, y_hi, ux, uy
 uniform sampler2D u_texAccChg;      // bdx, bdy, charge, R
-uniform sampler2D u_texPosLo;       // x_lo, y_lo, -, -
+uniform sampler2D u_texPosLo;       // x_lo, y_lo, chord deficit 1 - |v_chord|^2 of segment m -> m+1 (v6f only), -
 uniform sampler2D u_texQueryCoords; // x_hi, y_hi, x_lo, y_lo
 uniform int u_activeCount;
 uniform int u_mT;
@@ -122,7 +132,12 @@ vec2 dfSqrt(vec2 A) {
 }
 
 // ---------------- shell history access ----------------
+#ifndef F32N
 struct Knot { vec2 phi; vec2 plo; vec2 u; vec2 acc; float chg; float r; };
+#else
+// v6f: dch = chord deficit 1 - |v_chord|^2 of segment m -> m+1, formed on the CPU in float64 (u_texPosLo.z)
+struct Knot { vec2 phi; vec2 plo; vec2 u; vec2 acc; float chg; float r; float dch; };
+#endif
 
 Knot knotAt(int s, int m) {
   vec4 pv = texelFetch(u_texPosVel, ivec2(m, s), 0);
@@ -131,6 +146,9 @@ Knot knotAt(int s, int m) {
   Knot k;
   k.phi = pv.xy; k.u = pv.zw; k.acc = ac.xy; k.chg = ac.z; k.r = ac.w;
   k.plo = (u_precision == 1) ? lo.xy : vec2(0.0);
+#ifdef F32N
+  k.dch = lo.z;
+#endif
   return k;
 }
 
@@ -217,6 +235,9 @@ struct Seg {
   vec2 bHat; float bMag; float omb2;
   vec2 acc; float chg;
   float duRel;            // |u2 - u1| / (mean |u| + 0.1) across the segment
+#ifdef F32N
+  float sR;               // fraction used for the position (0 on a segment without a next knot)
+#endif
 };
 
 // Segment m1 at fraction t in [0, 1). Index and fraction are kept separate so that float32
@@ -233,6 +254,19 @@ struct SegC {
   vec2 acc0; vec2 acc1; vec2 acc2; vec2 acc3;
   vec2 u0; vec2 u1; vec2 u2; vec2 u3;
   float chg;
+#ifdef F32N
+  // Chord deficit 1 - |vbar(s)|^2 of the mean velocity over [0, s], as an affine combination of points P_i
+  // (sum a_i = 1): 1 - |sum a_i P_i|^2 = sum a_i D_i + sum_{i<j} a_i a_j |P_i - P_j|^2, D_i = 1 - |P_i|^2.
+  // Cubic: P = (v_chord, -b1, -b2). Quintic: P = (v_chord, Q0, Q1, Q3, Q4) (Q2 eliminated by sum Q = 5 v_chord).
+  float alpha; float Dv; float D0; float D2;
+  vec2 p2hi; vec2 p2lo;   // knot m2 position, for the double-float chord of the transverse-angle fix (FixC)
+  vec4 qa;   // cubic: |Pv-P0|^2, |Pv-P2|^2, |P0-P2|^2, -     quintic: |Pv-Q0|^2, |Pv-Q1|^2, |Pv-Q3|^2, |Pv-Q4|^2
+#ifdef KNOWN_PATH
+  float D1; float D3;
+  vec4 qb;   // quintic: |Q0-Q1|^2, |Q0-Q3|^2, |Q0-Q4|^2, |Q1-Q3|^2
+  vec2 qc;   // quintic: |Q1-Q4|^2, |Q3-Q4|^2
+#endif
+#endif
 };
 
 SegC segCoef(int s, int m1In) {
@@ -277,6 +311,18 @@ SegC segCoef(int s, int m1In) {
   c.v0 = oma * vSec - alpha * b1;
   c.v1 = vSec + alpha * (v1Raw - vSec);
   c.v2 = oma * vSec - alpha * b2;
+#ifdef F32N
+  c.alpha = alpha; c.Dv = k1.dch;
+  c.p2hi = k2.phi; c.p2lo = k2.plo;
+  float bm1 = min(b1Mag, maxSub), bm2 = min(b2Mag, maxSub);
+  c.D0 = (u_velMode == 2 && b1Mag <= maxSub) ? 1.0 / (1.0 + dot(k1.u, k1.u)) : (1.0 - bm1) * (1.0 + bm1);
+  c.D2 = (u_velMode == 2 && b2Mag <= maxSub) ? 1.0 / (1.0 + dot(k2.u, k2.u)) : (1.0 - bm2) * (1.0 + bm2);
+  vec2 e0 = vSec + b1, e2 = vSec + b2, e02 = b2 - b1;
+  c.qa = vec4(dot(e0, e0), dot(e2, e2), dot(e02, e02), 0.0);
+#ifdef KNOWN_PATH
+  c.D1 = 0.0; c.D3 = 0.0; c.qb = vec4(0.0); c.qc = vec2(0.0);
+#endif
+#endif
 #ifdef KNOWN_PATH
   c.v3 = vec2(0.0); c.v4 = vec2(0.0); c.j1 = vec2(0.0); c.j2 = vec2(0.0);
   c.exact = false; c.quint = false; c.uHerm = false;
@@ -294,6 +340,17 @@ SegC segCoef(int s, int m1In) {
       c.v0 = vSec + aq * (Q0 - vSec); c.v1 = vSec + aq * (Q1 - vSec); c.v2 = vSec + aq * (Q2 - vSec);
       c.v3 = vSec + aq * (Q3 - vSec); c.v4 = vSec + aq * (Q4 - vSec);
       c.j1 = jk1.xy; c.j2 = jk2.xy;
+#ifdef F32N
+      // Q1 = Q0 + w1, Q3 = Q4 - w2: their deficits from the knots' exact ones plus small terms
+      vec2 w1 = (0.25 * dR) * k1.acc, w2 = (0.25 * dR) * k2.acc;
+      c.alpha = aq;
+      c.D1 = c.D0 + 2.0 * dot(b1, w1) - dot(w1, w1);
+      c.D3 = c.D2 - 2.0 * dot(b2, w2) - dot(w2, w2);
+      vec2 g1 = e0 - w1, g3 = e2 + w2, h03 = e02 + w2, h13 = h03 + w1, h14 = e02 + w1;
+      c.qa = vec4(dot(e0, e0), dot(g1, g1), dot(g3, g3), dot(e2, e2));
+      c.qb = vec4(dot(w1, w1), dot(h03, h03), dot(e02, e02), dot(h13, h13));
+      c.qc = vec2(dot(h14, h14), dot(w2, w2));
+#endif
       // Hermite |u| only where the segment is resolved (bend term of the validity indicator < 1) and
       // unlimited: on coarse segments it overshoots (e.g. 0.44 -> 1.1 at beta 0.99, M = 128), so fall
       // back to linear |u| there.
@@ -319,6 +376,9 @@ Seg evalSeg(SegC c, float tIn) {
   g.r1 = c.r1;
   g.dR = dR;
   g.dRSub = sRad * dR;
+#ifdef F32N
+  g.sR = sRad;
+#endif
   g.p1hi = c.p1hi;
   g.p1lo = c.p1lo;
 
@@ -406,7 +466,11 @@ Seg sampleSeg(int s, float mFloat) {
 }
 
 // Root function f = R - |x - z| and the separation vector d = x - z (both single precision on return).
+#ifndef F32N
 struct RootEval { float f; vec2 d; float dist; };
+#else
+struct RootEval { float f; vec2 d; float dist; vec2 dlo; };   // v6f: dlo = low part of the double-float d (knots only)
+#endif
 
 // g_fast: on-screen rendering (u_fastRender = 1). Readback (verification suite, probe, tables) always
 // takes the full path, so every reported number is unaffected by the display shortcuts.
@@ -422,6 +486,9 @@ RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, 
     o.f = F.x + F.y;
     o.d = vec2(DX.x + DX.y, DY.x + DY.y);
     o.dist = dist.x + dist.y;
+#ifdef F32N
+    o.dlo = vec2(ADD(SUB(DX.x, o.d.x), DX.y), ADD(SUB(DY.x, o.d.y), DY.y));
+#endif
   } else if (u_precision == 1) {
     // Display path: same double-float cancellation, but no double-float square root.
     // d = x - z: the large parts cancel exactly in twoSum; the small parts (observer and knot low words,
@@ -434,10 +501,16 @@ RootEval rootFn(vec2 xhi, vec2 xlo, vec2 phi, vec2 plo, vec2 dPosSub, float r1, 
     o.d = vec2(DX.x + DX.y, DY.x + DY.y);
     o.dist = length(o.d);
     o.f = (num.x + num.y) / max(1e-30, (R.x + R.y) + o.dist);
+#ifdef F32N
+    o.dlo = vec2(ADD(SUB(DX.x, o.d.x), DX.y), ADD(SUB(DY.x, o.d.y), DY.y));
+#endif
   } else {
     o.d = (xhi - phi) - dPosSub;
     o.dist = length(o.d);
     o.f = (r1 - o.dist) + dRSub;
+#ifdef F32N
+    o.dlo = vec2(0.0);
+#endif
   }
   return o;
 }
@@ -539,6 +612,182 @@ void solveRoot(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out
   segOut = lo; fracOut = sc; cOut = c;
 }
 
+#ifdef F32N
+// ---------------- v6f: float32 incremental root inside the segment ----------------
+// Only f1 = R1 - |x - z1| and d1 = x - z1 at the bracketing knot are double-float. Inside the segment,
+// with dz = z(s) - z1, l = |dz|, dR = s dR_seg, L1 = |d1|, L = |d1 - dz|:
+//   f(s) = f1 + [dR - l] + [l + L1 - L],  both brackets >= 0 and formed without cancellation:
+//   dR - l = dR D / (1 + l/dR), D = 1 - |dz/dR|^2 from the affine form (segCoef), not from float32 dz;
+//   l + L1 - L = 2 (d1 x dz)^2 / ((l L1 - d1.dz)(l + L1 + L)) if d1.dz <= 0, else 2 (l L1 + d1.dz) / (l + L1 + L).
+// Plain float32 sums of non-negative terms: no BAR() needed (reassociation cannot cancel them).
+float chordDeficit(SegC c, float s) {
+  float o = 1.0 - s;
+#ifdef KNOWN_PATH
+  if (c.quint) {
+    // mean of the quartic hodograph over [0, s]: I_k = (1/s) int_0^s B_{k,4}; coefficients a_k = aq (I_k - I_2)
+    float o2 = o * o, o4 = o2 * o2, s2 = s * s;
+    float I0 = (1.0 + o + o2 + o2 * o + o4) * 0.2, I1 = I0 - o4;
+    float I2 = s2 * (10.0 * o2 + 5.0 * s * o + s2) * 0.2, I3 = s2 * s * (5.0 * o + s) * 0.2, I4 = s2 * s2 * 0.2;
+    float a0 = c.alpha * (I0 - I2), a1 = c.alpha * (I1 - I2), a3 = c.alpha * (I3 - I2), a4 = c.alpha * (I4 - I2);
+    float av = 1.0 - a0 - a1 - a3 - a4;
+    return av * c.Dv + a0 * c.D0 + a1 * c.D1 + a3 * c.D3 + a4 * c.D2
+         + av * (a0 * c.qa.x + a1 * c.qa.y + a3 * c.qa.z + a4 * c.qa.w)
+         + a0 * (a1 * c.qb.x + a3 * c.qb.y + a4 * c.qb.z) + a1 * (a3 * c.qb.w + a4 * c.qc.x) + a3 * a4 * c.qc.y;
+  }
+#endif
+  // mean of the quadratic hodograph over [0, s]: a0 = alpha (1-s)^2, a2 = -alpha s (1-s)
+  float a0 = c.alpha * o * o, a2 = -c.alpha * s * o, av = 1.0 - a0 - a2;
+  return av * c.Dv + a0 * c.D0 + a2 * c.D2 + av * a0 * c.qa.x + av * a2 * c.qa.y + a0 * a2 * c.qa.z;
+}
+// Transverse angles. Near the pulse crest n, beta_hat and the chord are parallel to within 1/gamma, so any float32
+// rotation of one of them (rounding of d, of n = d/|d|, of the control points, of the hodograph and its normalisation)
+// is a relative error ~ eps gamma in 1 - n.beta_hat, d1 x dz (root) and n.a. Instead, every such cross/dot product is
+// taken against the double-float knot separation d1 (exact products, BAR-guarded), once per segment: the spline is
+// linear in (chord, b1, b2, acc1, acc2), so psi_k = d1 x v_k (hodograph control points) and chi_k = d1 x P_k
+// (position control points) are scalars, and d1 x z'(s), d1 x dz(s) are their Bernstein sums (no rounding of a direction).
+struct FixC { vec4 psi; float psi4; vec4 chi; float chi5; vec4 Y; bool on; };
+float crossX(vec2 dh, vec2 dl, vec2 w) {   // (dh + dl) x w, w float32: products exact, then summed
+  vec2 p = twoProd(dh.x, w.y), q = twoProd(dh.y, w.x);
+  return ADD(SUB(p.x, q.x), ADD(SUB(p.y, q.y), SUB(MUL(dl.x, w.y), MUL(dl.y, w.x))));
+}
+float dotX(vec2 dh, vec2 dl, vec2 w) {
+  vec2 p = twoProd(dh.x, w.x), q = twoProd(dh.y, w.y);
+  return ADD(ADD(p.x, q.x), ADD(ADD(p.y, q.y), ADD(MUL(dl.x, w.x), MUL(dl.y, w.y))));
+}
+// Only where it matters: the error is ~ eps gamma, so the fix is skipped (one branch per pixel-source, uniform across
+// pixels) unless the segment has |u| > 4 (gamma > 4.1, proper-velocity storage).
+FixC fixConsts(SegC c, vec2 dh, vec2 dl) {
+  // F32N_NOFIX (compile-time) removes the fix: same output and frame time as v6f before it (SwiftShader runs the
+  // gated-off branch anyway, about +10-15% frame time there).
+#ifdef F32N_NOFIX
+  FixC X; X.on = false;
+#else
+  FixC X; X.on = u_velMode == 2 && max(dot(c.u1, c.u1), dot(c.u2, c.u2)) > 16.0;
+#endif
+  if (!X.on) return X;
+  // double-float chord, and the scalars of vSec = vScale chord / dR and b_k = bs_k u_k (unpack and clamp, as segCoef)
+  vec2 chx = twoSum(c.p2hi.x, -c.p1hi.x), chy = twoSum(c.p2hi.y, -c.p1hi.y);
+  vec2 chHi = vec2(chx.x, chy.x), chLo = vec2(ADD(chx.y, SUB(c.p2lo.x, c.p1lo.x)), ADD(chy.y, SUB(c.p2lo.y, c.p1lo.y)));
+  float maxSub = u_betaMax, vm = length(c.dChord) / c.dR;
+  float vScale = vm > maxSub ? maxSub / vm : 1.0;
+  float g1 = 1.0 / sqrt(1.0 + dot(c.u1, c.u1)), g2 = 1.0 / sqrt(1.0 + dot(c.u2, c.u2));
+  float bs1 = g1 * min(1.0, maxSub / (g1 * length(c.u1))), bs2 = g2 * min(1.0, maxSub / (g2 * length(c.u2)));
+  float xch = ADD(crossX(dh, dl, chHi), SUB(MUL(dh.x, chLo.y), MUL(dh.y, chLo.x)));   // d1 x chord
+  float pv = vScale * xch / c.dR;                                                    // d1 x vSec
+  float pb1 = bs1 * crossX(dh, dl, c.u1), pb2 = bs2 * crossX(dh, dl, c.u2);          // d1 x b1, d1 x b2
+  X.Y = vec4(dot(dh, c.acc0), dotX(dh, dl, c.acc1), dotX(dh, dl, c.acc2), dot(dh, c.acc3));
+  X.chi5 = xch;
+#ifdef KNOWN_PATH
+  if (c.quint) {
+    vec2 w1 = (0.25 * c.dR) * c.acc1, w2 = (0.25 * c.dR) * c.acc2;
+    float q0 = -pb1, q4 = -pb2, q1 = q0 + (dh.x * w1.y - dh.y * w1.x), q3 = q4 - (dh.x * w2.y - dh.y * w2.x);
+    float q2 = 5.0 * pv - q0 - q1 - q3 - q4;
+    X.psi = pv + c.alpha * (vec4(q0, q1, q2, q3) - pv); X.psi4 = pv + c.alpha * (q4 - pv);
+    float h = 0.2 * c.dR;
+    X.chi.x = h * X.psi.x; X.chi.y = X.chi.x + h * X.psi.y; X.chi.z = X.chi.y + h * X.psi.z; X.chi.w = xch - h * X.psi4;
+    return X;
+  }
+#endif
+  float om = 1.0 - c.alpha;
+  X.psi = vec4(om * pv - c.alpha * pb1, pv + c.alpha * (2.0 * pv + pb1 + pb2), om * pv - c.alpha * pb2, 0.0);
+  X.psi4 = 0.0; X.chi = vec4(0.0);
+  return X;
+}
+float crossD1Dz(FixC X, SegC c, float s) {   // d1 x dz(s)
+  float o = 1.0 - s, s2 = s * s, s3 = s2 * s;
+#ifdef KNOWN_PATH
+  if (c.quint) {
+    float o2 = o * o;
+    return dot(vec4(5.0 * o2 * o2 * s, 10.0 * o2 * o * s2, 10.0 * o2 * s3, 5.0 * o * s2 * s2), X.chi) + s2 * s3 * X.chi5;
+  }
+#endif
+  return (3.0 * s2 - 2.0 * s3) * X.chi5 + c.dR * ((s3 - 2.0 * s2 + s) * X.psi.x + (s3 - s2) * X.psi.z);
+}
+float crossD1V(FixC X, SegC c, float s) {    // d1 x dz/dR(s)
+  float o = 1.0 - s, s2 = s * s;
+#ifdef KNOWN_PATH
+  if (c.quint) {
+    float o2 = o * o;
+    return dot(vec4(o2 * o2, 4.0 * o2 * o * s, 6.0 * o2 * s2, 4.0 * o * s2 * s), X.psi) + s2 * s2 * X.psi4;
+  }
+#endif
+  return o * o * X.psi.x + 2.0 * s * o * X.psi.y + s2 * X.psi.z;
+}
+RootEval incRoot(vec2 d1, float L1, float f1, SegC c, Seg g, FixC X) {
+  vec2 dz = g.dPosSub; float dR = g.dRSub;
+  float l = length(dz); vec2 b = d1 - dz; float L = length(b);
+  float t1 = dR > 0.0 ? dR * chordDeficit(c, g.sR) / (1.0 + l / dR) : 0.0;
+  float dd = dot(d1, dz), S = l + L1 + L, cr = X.on ? crossD1Dz(X, c, g.sR) : d1.x * dz.y - d1.y * dz.x;
+  float slack = l > 0.0 ? (dd <= 0.0 ? 2.0 * cr * cr / ((l * L1 - dd) * S) : 2.0 * (l * L1 + dd) / S) : 0.0;
+  RootEval o; o.f = f1 + (t1 + slack); o.d = b; o.dist = L; o.dlo = vec2(0.0);
+  return o;
+}
+// Root function at a knot in double-float, also returning d = x - z (full form for readback, the display
+// path's form without the double-float square root when g_fast).
+float knotRootD(vec2 xhi, vec2 xlo, int s, int m, out vec2 d, out vec2 dl) {
+  Knot k = knotAt(s, m);
+  RootEval r = rootFn(xhi, xlo, k.phi, k.plo, vec2(0.0), k.r, 0.0);
+  d = r.d; dl = r.dlo;
+  return r.f;
+}
+// Sign-only float32 root function at a knot (high parts; two texel fetches).
+float knotF32(vec2 xhi, int s, int m) {
+  vec4 pv = texelFetch(u_texPosVel, ivec2(m, s), 0);
+  float r = texelFetch(u_texAccChg, ivec2(m, s), 0).w;
+  return r - length(xhi - pv.xy);
+}
+// Knot bisection in float32, then both bracket knots in double-float; a wrong float32 sign (possible only
+// within rounding of the root) moves the bracket outward one knot at a time. Then Newton on incRoot.
+void solveRootF(int s, vec2 xhi, vec2 xlo, out bool inDomain, out int segOut, out float fracOut, out SegC cOut,
+                out vec2 d1Out, out float f1Out, out vec2 d1LoOut, out FixC fixOut) {
+  inDomain = true;
+  fixOut.on = false;
+  int lo = 0, hi = u_mT - 1;
+  float gLo = knotF32(xhi, s, lo), gHi = knotF32(xhi, s, hi);
+  if (gHi <= 0.0) lo = hi - 1;
+  else if (gLo >= 0.0) hi = 1;
+  else {
+    for (int i = 0; i < 12; i++) {
+      if (hi - lo <= 1) break;
+      int mid = (lo + hi) / 2;
+      if (knotF32(xhi, s, mid) < 0.0) lo = mid; else hi = mid;
+    }
+  }
+  vec2 dLo, dHi, lLo, lHi;
+  float fLo = knotRootD(xhi, xlo, s, lo, dLo, lLo), fHi = knotRootD(xhi, xlo, s, hi, dHi, lHi);
+  for (int w = 0; w < 16; w++) {
+    if (fLo >= 0.0 && lo > 0) { hi = lo; fHi = fLo; dHi = dLo; lHi = lLo; lo -= 1; fLo = knotRootD(xhi, xlo, s, lo, dLo, lLo); }
+    else if (fHi < 0.0 && hi < u_mT - 1) { lo = hi; fLo = fHi; dLo = dHi; lLo = lHi; hi += 1; fHi = knotRootD(xhi, xlo, s, hi, dHi, lHi); }
+    else break;
+  }
+  d1Out = dLo; f1Out = fLo; d1LoOut = lLo;
+  if (hi == u_mT - 1 && fHi <= 0.0) { inDomain = false; segOut = lo; fracOut = 0.9999; cOut = segCoef(s, lo); return; }
+  if (lo == 0 && fLo >= 0.0) { segOut = 0; fracOut = 0.0; cOut = segCoef(s, 0); return; }
+  SegC c = segCoef(s, lo);
+  FixC X = fixConsts(c, dLo, lLo);
+  fixOut = X;
+  float L1 = length(dLo);
+  float sLow = 0.0;
+  float sHigh = 0.9999;
+  float sc = clamp(fLo / (fLo - fHi), 0.0, 0.9999);
+  for (int n = 0; n < 16; n++) {
+    if (n >= u_newton) break;
+    Seg g = evalSeg(c, sc);
+    RootEval r = incRoot(dLo, L1, fLo, c, g, X);
+    if (r.f == 0.0) break;
+    if (r.f < 0.0) sLow = sc; else sHigh = sc;
+    vec2 nrm = r.dist > 1e-6 ? r.d / r.dist : vec2(1.0, 0.0);
+    float dfds = max(1e-12, g.dR * max(kappaFloor(), 1.0 + dot(nrm, g.dzdR)));
+    float cand = sc - r.f / dfds;
+    float next = (cand >= sLow && cand <= sHigh) ? cand : 0.5 * (sLow + sHigh);
+    bool done = abs(next - sc) < 1e-7 || (sHigh - sLow) < 1e-7;
+    sc = next;
+    if (done) break;
+  }
+  segOut = lo; fracOut = sc; cOut = c;
+}
+#endif
+
 void evalCancellationFreeKappaAndU(vec2 n, vec2 bHat, float bMag, float omb2, out float kappa, out vec2 u) {
   float oneMinusBeta = omb2 / (1.0 + bMag);
   vec2 diff = n - bHat;
@@ -555,10 +804,18 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
     if (s >= u_activeCount) break;
     bool inDomain;
     int seg; float frac; SegC cS;
+#ifdef F32N
+    vec2 d1, d1l; float f1; FixC X;
+    solveRootF(s, xhi, xlo, inDomain, seg, frac, cS, d1, f1, d1l, X);
+    Seg g = evalSeg(cS, frac);
+    float mRet = float(seg) + frac;
+    RootEval r = incRoot(d1, length(d1), f1, cS, g, X);
+#else
     solveRoot(s, xhi, xlo, inDomain, seg, frac, cS);
     Seg g = evalSeg(cS, frac);
     float mRet = float(seg) + frac;
     RootEval r = rootFn(xhi, xlo, g.p1hi, g.p1lo, g.dPosSub, g.r1, g.dRSub);
+#endif
     vec2 d = r.d;
     float r2 = dot(d, d);
     float rr = sqrt(r2);
@@ -567,11 +824,43 @@ FieldOut evalField(vec2 xhi, vec2 xlo) {
     vec2 n = rr > 1e-6 ? d / rr : vec2(1.0, 0.0);
     float kappa; vec2 u;
     evalCancellationFreeKappaAndU(n, g.bHat, g.bMag, g.omb2, kappa, u);
+#ifdef F32N
+    float nA = dot(n, g.acc);
+    if (X.on && g.bMag > 0.5) {
+      // sin(beta_hat, n) from d x z' = d1 x z' - dz x z' (FixC), 1 - cos = sin^2 / (1 + cos); n - beta_hat in the
+      // beta_hat frame; n.a from the exact d1.acc_k. See FixC.
+      float sR = cS.hasNext ? clamp(frac, 0.0, 0.99999) : 0.0;
+      float sn = (crossD1V(X, cS, sR) - (g.dPosSub.x * g.dzdR.y - g.dPosSub.y * g.dzdR.x)) / (length(g.dzdR) * rr);
+      float cs = dot(g.bHat, n);
+      float ang = cs > 0.0 ? sn * sn / (1.0 + cs) : 1.0 - cs;
+      vec2 diff = sn * vec2(-g.bHat.y, g.bHat.x) - ang * g.bHat;
+      float omb = g.omb2 / (1.0 + g.bMag);
+      kappa = max(1e-7, omb + g.bMag * ang);
+      u = omb * (g.bHat + diff) + g.bMag * diff;
+      float t = clamp(frac, 0.0, 0.99999), t2 = t * t, t3 = t2 * t;
+      vec2 dz = g.dPosSub;
+#ifdef KNOWN_PATH
+      if (cS.quint) {
+        float H00 = 2.0 * t3 - 3.0 * t2 + 1.0, H10 = t3 - 2.0 * t2 + t, H01 = -2.0 * t3 + 3.0 * t2, H11 = t3 - t2;
+        nA = (H00 * (X.Y.y - dot(cS.acc1, dz)) + H01 * (X.Y.z - dot(cS.acc2, dz))
+              + cS.dR * (H10 * dot(cS.j1, d) + H11 * dot(cS.j2, d))) / rr;
+      } else
+#endif
+      {
+        vec4 w = vec4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
+        nA = dot(w, X.Y - vec4(dot(cS.acc0, dz), dot(cS.acc1, dz), dot(cS.acc2, dz), dot(cS.acc3, dz))) / rr;
+      }
+    }
+#endif
     float kappa3 = kappa * kappa * kappa;
     vec2 eVel = (g.chg * g.omb2 / (kappa3 * rSoft2)) * u;
     // Radiation term n x ((n - beta) x a) written as (n - beta)(n.a) - kappa a, with u = n - beta and the
     // cancellation-free kappa: the cross-product form rebuilds kappa ~ 1/(2 gamma^2) from O(1) float32 terms.
+#ifdef F32N
+    vec2 eRad = (g.chg / (kappa3 * rSoft)) * (u * nA - kappa * g.acc);
+#else
     vec2 eRad = (g.chg / (kappa3 * rSoft)) * (u * dot(n, g.acc) - kappa * g.acc);
+#endif
     vec2 eS = eVel + eRad;
     o.e += eS; o.eRad += eRad; o.eVel += eVel;
     o.bz += n.x * eS.y - n.y * eS.x;

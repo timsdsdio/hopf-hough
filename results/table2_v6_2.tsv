@@ -1,0 +1,25 @@
+# Preprint Table 2 (tab:gamma) re-measured for the v6.2 release: v6 and v6f kernels, library readback (tests/gpu/table2_v6_2.mjs), commit 904bcce + working tree
+# Renderer: ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver) (IEEE float32 software rendering). Accuracy only, no timings.
+# Relative L2 error vs the exact LW field, no softening. sweep: 256 observers across the synchrotron pulse at R_ret = 1.15 (f32 = rounded to float32 and
+# compared at the rounded point; df64 = double-float observer coordinates); ring: 64 observers at radius 1.15. Ring-buffer history (16 steps), as the paper.
+# known_*: the same sweep with known-path shells (exact knots, C2 quintic). v5: the version-5 algorithm (deposited shader). At gamma = 224 only df64 is meaningful.
+# v6 columns reproduce results/tables.json to 0.0e+0 relative (unchanged kernel).
+beta	gamma	M	v6_sweep_f32	v6_sweep_df64	v6_ring	v6f_sweep_f32	v6f_sweep_df64	v6f_ring	v5_sweep_f32	coord_rounding	v6_known_sweep_f32	v6_known_sweep_df64	v6f_known_sweep_f32	v6f_known_sweep_df64
+0.8	1.7	128	0.0067%	0.0067%	0.0029%	0.0067%	0.0067%	0.0029%	0.0067%	2.2e-5%	1.9e-5%	2.0e-5%	1.9e-5%	2.0e-5%
+0.8	1.7	512	4.4e-4%	4.4e-4%	1.5e-4%	4.4e-4%	4.4e-4%	1.5e-4%	0.0010%	2.2e-5%	2.0e-5%	2.0e-5%	2.1e-5%	1.9e-5%
+0.8	1.7	2048	3.5e-5%	3.6e-5%	2.2e-5%	3.7e-5%	3.7e-5%	2.1e-5%	0.0034%	2.2e-5%	1.9e-5%	2.0e-5%	2.1e-5%	2.2e-5%
+0.95	3.2	128	0.017%	0.017%	0.12%	0.017%	0.017%	0.12%	0.017%	3.1e-4%	4.1e-5%	3.4e-5%	3.8e-5%	3.8e-5%
+0.95	3.2	512	0.0010%	0.0010%	0.0068%	0.0010%	0.0010%	0.0069%	0.0019%	3.1e-4%	3.6e-5%	3.0e-5%	3.3e-5%	3.2e-5%
+0.95	3.2	2048	6.7e-5%	6.8e-5%	5.2e-4%	6.6e-5%	6.9e-5%	5.4e-4%	0.0075%	3.1e-4%	3.3e-5%	3.4e-5%	3.3e-5%	3.5e-5%
+0.99	7.1	128	0.038%	0.038%	0.012%	0.038%	0.038%	0.012%	0.039%	0.0034%	1.4e-4%	1.5e-4%	3.3e-5%	3.0e-5%
+0.99	7.1	512	0.0022%	0.0022%	8.4e-4%	0.0022%	0.0022%	8.2e-4%	0.0097%	0.0034%	7.6e-5%	6.3e-5%	3.2e-5%	3.2e-5%
+0.99	7.1	2048	1.8e-4%	1.6e-4%	1.0e-4%	1.5e-4%	1.5e-4%	5.7e-5%	0.015%	0.0034%	7.8e-5%	8.5e-5%	2.9e-5%	2.5e-5%
+0.999	22.4	128	0.13%	0.13%	0.013%	0.13%	0.13%	0.013%	0.26%	0.11%	0.0053%	0.0035%	4.2e-5%	4.3e-5%
+0.999	22.4	512	0.0077%	0.0079%	0.0016%	0.0076%	0.0076%	0.0017%	0.22%	0.11%	9.3e-4%	4.7e-4%	6.0e-5%	5.8e-5%
+0.999	22.4	2048	5.4e-4%	5.8e-4%	2.5e-4%	4.8e-4%	4.8e-4%	2.0e-4%	0.29%	0.11%	3.5e-4%	3.6e-4%	5.2e-5%	4.7e-5%
+0.9999	70.7	128	0.37%	0.43%	0.045%	0.39%	0.40%	0.045%	48%	3.2%	0.13%	0.12%	1.1e-4%	8.5e-5%
+0.9999	70.7	512	0.036%	0.049%	0.0028%	0.024%	0.024%	0.0028%	7.6%	3.2%	0.036%	0.027%	1.4e-4%	1.4e-4%
+0.9999	70.7	2048	0.0070%	0.0081%	7.0e-5%	0.0016%	0.0016%	1.4e-4%	7.8%	3.2%	0.0072%	0.0078%	1.1e-4%	1.2e-4%
+0.99999	223.6	128	5.4%	6.8%	0.041%	0.63%	0.58%	0.041%	—	>100%	4.9%	4.4%	0.0048%	0.0035%
+0.99999	223.6	512	0.81%	1.2%	0.0011%	0.070%	0.067%	0.0011%	—	>100%	1.1%	1.1%	6.1e-4%	5.5e-4%
+0.99999	223.6	2048	0.19%	0.22%	6.0e-5%	0.0050%	0.0050%	3.6e-5%	—	>100%	0.31%	0.28%	3.4e-4%	4.0e-4%

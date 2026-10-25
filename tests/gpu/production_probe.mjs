@@ -1,4 +1,4 @@
-// Production shader: compile check, then sweep errors for each switch combination.
+// v6 production shader (V6_SHADERS; the switches are v6's): compile check, then sweep errors for each switch combination.
 import { launch } from './browser.mjs';
 import { readFileSync } from 'node:fs';
 const bundle = process.argv[2];
@@ -9,7 +9,7 @@ page.on('console', (m) => console.log('[page]', m.text()));
 await page.setContent('<html><body><canvas id="c" width="16" height="16"></canvas></body></html>');
 await page.addScriptTag({ content: readFileSync(bundle, 'utf8') });
 const res = await page.evaluate(() => {
-  const solver = new HopfHough.GpuSolver(document.getElementById('c'), HopfHough.PRODUCTION_SHADERS);
+  const solver = new HopfHough.GpuSolver(document.getElementById('c'), HopfHough.V6_SHADERS);
   const B = HopfHough.gpuBackend(solver);
   const variants = {
     'legacy switches (eps .06)': { ...HopfHough.LEGACY_SETTINGS },
