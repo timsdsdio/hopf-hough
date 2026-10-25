@@ -47,5 +47,7 @@ Kernel: v6fp  (identical to v6f in every printed value)
 # v6	(none)	43	(B)
 # v6fp (v6f precise)	F32N	33	(B), measured as its "v6f" (with the fix)	(0.77x v6: the field-floor fix costs ~23% of the frame rate)
 # v6f (default)	F32N F32N_NOFIX	42	(C)	(~v6; SwiftShader's ~0.5x frame-time ratio did not carry over)
-# Re-measured on the v6.2.0 build: TODO
+# Re-measured on the v6.2.0 build (D): the dev copy of web/index.html byte-identical to the release (e10b7a2), 2026-10-25,
+# 32 sources, default scene: v6f 43, v6f precise 33, v6 43, v5 120 fps (v5 likely at the display cap).
+# The paper's fps table uses these (D) values.
 # Not directly comparable with results/suite_m1max_web_kform.txt (v6 62 fps): Chrome, commit 06edf87.

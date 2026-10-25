@@ -94,7 +94,7 @@ Two kernels are compiled from the v6 shader source:
 - **v6f** (the default): \`#define F32N\` and \`#define F32N_NOFIX\` (\`V6F_SHADERS\`, \`V6F_KNOWN_PATH_SHADERS\` = \`PRODUCTION_SHADERS\`, \`KNOWN_PATH_SHADERS\`; in the app, *Kernel: v6f*). Changes 1–3 below.
 - **v6f precise** (\`v6fp\`): \`#define F32N\` only (\`V6FP_SHADERS\`, \`V6FP_KNOWN_PATH_SHADERS\`; \`kernelShaders('v6fp')\`; in the app, *Kernel: v6f precise*). Changes 1–4, i.e. v6f plus the field floor fix.
 
-On an Apple M1 Max (Safari, Metal; 32 sources, default scene, known path) v6f renders at the speed of v6 (42 vs 43 fps) and v6f precise at 33 fps (0.77× v6); see *Cost* below. Before this split, "v6f" in the v6.2 drafts meant the build with the fix, i.e. today's v6fp.
+On an Apple M1 Max (Safari, Metal; 32 sources, default scene, known path) v6f renders at the speed of v6 (43 vs 43 fps) and v6f precise at 33 fps (0.77× v6); see *Cost* below. Before this split, "v6f" in the v6.2 drafts meant the build with the fix, i.e. today's v6fp.
 
 Every change is inside \`#ifdef F32N\`, so the v6 and v5 programs are unchanged (tests/gpu/v6f.mjs checks v6 bit for bit against the v6 shader and app of main at commit 904bcce, which include the κ-form and Newton fixes, kept in reference/ as shader_v6_1.glsl and web_v6_1.html; this is not the v6.0.0 kernel of preprint v6.1; web_app.mjs checks v5 against the original file).
 
