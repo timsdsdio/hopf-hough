@@ -4,7 +4,7 @@
 //  3. The single-file app loads without errors or external requests.
 //  4. The author's app (web/index.html, site root): v5 kernel bit-identical to the original, v6 kernel accuracy.
 //  5. Validity indicator on dragged histories (acceleration terms) and on smooth / near-rest motion.
-//  6. v6f kernel (library and app): accuracy at γ = 71 and 224, v6 bit-identical to v6.1, display pixels vs v6.
+//  6. v6f kernel (library and app): accuracy at γ = 71 and 224, v6 bit-identical to main 904bcce, display pixels vs v6.
 import { launch } from './browser.mjs';
 import { runWebAppChecks } from './web_app.mjs';
 import { runDragMaskChecks } from './drag_mask.mjs';

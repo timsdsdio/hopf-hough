@@ -658,7 +658,7 @@ float dotX(vec2 dh, vec2 dl, vec2 w) {
 // pixels) unless the segment has |u| > 4 (gamma > 4.1, proper-velocity storage).
 FixC fixConsts(SegC c, vec2 dh, vec2 dl) {
   // F32N_NOFIX (compile-time) removes the fix: same output and frame time as v6f before it (SwiftShader runs the
-  // gated-off branch anyway, about +10-15% frame time there).
+  // gated-off branch anyway: +11-12% frame time there, validation/f32newton/f32newton_floor/results_frame_ratio_v62.json).
 #ifdef F32N_NOFIX
   FixC X; X.on = false;
 #else

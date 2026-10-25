@@ -45,7 +45,7 @@ const res = await page.evaluate(() => {
 });
 await browser.close();
 
-// v6 must reproduce results/tables.json (the v6.1 kernel, unchanged).
+// v6 must reproduce results/tables.json (the v6 kernel of main at 904bcce, unchanged; not the v6.0.0 kernel of preprint v6.1).
 const ref = JSON.parse(readFileSync(resolve(root, 'results/tables.json'), 'utf8')).gamma;
 let maxRel = 0;
 for (const r of res.rows) {

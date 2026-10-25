@@ -6,7 +6,7 @@
 //  3. the v6 kernel reproduces the production accuracy on the pulse sweep (no softening);
 //  4. known-path mode (exact knots, C2 quintic): pulse sweep accuracy, ring accuracy after live steps, drag hand-off;
 //  5. relative frame time v5 / v6 / v6f / known path (software rendering: relative only).
-// v6f accuracy, v6 bit-identity to v6.1 and v6f display pixels are in v6f.mjs.
+// v6f accuracy, v6 bit-identity to main 904bcce and v6f display pixels are in v6f.mjs.
 import { launch } from './browser.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';

@@ -84,7 +84,7 @@
                         <button id="btn-fibers" class="font-mono text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition">
                             Shells & Rays: ON
                         </button>
-                        <button id="btn-kernel" class="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition" title="v6f (default): v6 with a float32 incremental root inside the segment (chord deficit from the CPU in float64), float32 knot bisection with a double-float bracket check, and exact cancelling products against the double-float separation at high gamma. v6: certified segments, knot search + Newton, double-float root, validity indicator (preprint v6). v5: the original kernel (preprint v5).">
+                        <button id="btn-kernel" class="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition" title="v6f (default): v6 with a float32 incremental root inside the segment (chord deficit from the CPU in float64), float32 knot bisection with a double-float bracket check, and exact cancelling products against the double-float separation at high gamma. v6: certified segments, knot search + Newton, double-float root, validity indicator (preprint v6, with the later κ-form and Newton fixes). v5: the original kernel (preprint v5).">
                             Kernel: v6f (f32 Newton)
                         </button>
                         <button id="btn-path" class="font-mono text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition" title="v6 and v6f kernels only. Known: preset sources use exact knots of their path and C2 quintic segments (fewer shells for the same accuracy near the source). Live: every source is resampled from the ring buffer (cubic segments), as before. A dragged source always uses the ring buffer for the part of its history spent off its path.">
@@ -341,7 +341,7 @@
             subviewMode: 'shock_crest',
             velMode: 2, // 0: Raw Beta, 1: Arc-Length Norm Beta, 2: Proper 4-Vel u = gamma*beta + Spline-Consistent Direction
             useDiffusiveEulerian: false,
-            kernel: 'v6f', // 'v6f' (default: v6 with the float32 incremental Newton), 'v6' (accurate, preprint v6) or 'v5' (the original kernel)
+            kernel: 'v6f', // 'v6f' (default: v6 with the float32 incremental Newton), 'v6' (accurate; preprint v6 plus the κ-form and Newton fixes) or 'v5' (the original kernel)
             simSpeed: 2,     // simulation steps (0.45 DT_STEP each) per animation frame; shells resampled on the last
             knownPath: true, // v6: preset sources take exact knots and C2 quintic segments (live/dragged ones use the ring)
             mTAuto: false,   // choose M_T from the view's reach and gamma (known-path accuracy table)
@@ -843,7 +843,7 @@
 
         // M_T from the view's reach (largest observer-to-source distance) and gamma, for known-path
         // segments: the smallest shell count at which the quintic is at least as accurate as the M_T = 2048
-        // ring/cubic path (measured in swarm/work/knownpath of em-sim-3: within the default view, R < 6,
+        // ring/cubic path (measured with validation/knownpath/kp_measure.mjs: within the default view, R < 6,
         // M_T = 128 suffices up to gamma ~ 70; at 6 < R < 20 it takes 512, about 4x fewer; gamma ~ 220 needs 512).
         function autoShellCount() {
             const aspect = bulkCanvas.clientWidth / Math.max(1, bulkCanvas.clientHeight);
@@ -1343,7 +1343,7 @@
         let gl = null;
         let glProg = null;
         let glUniforms = {};
-        // Two kernels: v5 = the original shader below, v6 = the production shader (preprint v6).
+        // Two kernels: v5 = the original shader below, v6 = the production shader of preprint v6, with the later κ-form and Newton fixes.
         let glProgV5 = null, glUniformsV5 = {}, glProgV6 = null, glUniformsV6 = {}, texPosLo = null;
         let glProgV6K = null, glUniformsV6K = {};   // v6 with KNOWN_PATH compiled in (quintic segments); used only when exact knots are uploaded
         // v6f: the v6 source compiled with F32N (float32 incremental Newton with the chord deficit from the CPU, float32 knot
@@ -1808,7 +1808,7 @@
             gl.uniform1i(glUniforms.texAccChg, 1);
             gl.uniform1i(glUniforms.texQueryCoords, 2);
 
-            // ---- v6 kernel (preprint v6): same textures plus the low parts of the knot positions ----
+            // ---- v6 kernel (preprint v6 plus the κ-form and Newton fixes): same textures plus the low parts of the knot positions ----
             const fsSourceV6 = `#version 300 es
 precision highp float;
 precision highp int;
@@ -2436,7 +2436,7 @@ float dotX(vec2 dh, vec2 dl, vec2 w) {
 // pixels) unless the segment has |u| > 4 (gamma > 4.1, proper-velocity storage).
 FixC fixConsts(SegC c, vec2 dh, vec2 dl) {
   // F32N_NOFIX (compile-time) removes the fix: same output and frame time as v6f before it (SwiftShader runs the
-  // gated-off branch anyway, about +10-15% frame time there).
+  // gated-off branch anyway: +11-12% frame time there, validation/f32newton/f32newton_floor/results_frame_ratio_v62.json).
 #ifdef F32N_NOFIX
   FixC X; X.on = false;
 #else

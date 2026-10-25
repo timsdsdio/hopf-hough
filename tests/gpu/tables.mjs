@@ -1,6 +1,6 @@
 // Regenerates every table in the paper with the production solver (WebGL2 readback).
-// Usage: node tests/gpu/tables.mjs [which=all] [kernel=v6]. results/tables.json (preprint v6.1, README, docs/ACCURACY.md
-// sections 1-5) is the v6 kernel; pass v6f for the default kernel of the v6.2 library. The v6/v6f comparison of
+// Usage: node tests/gpu/tables.mjs [which=all] [kernel=v6]. results/tables.json (README, docs/ACCURACY.md
+// sections 1-5; regenerated after the κ-form and Newton fixes) is the v6 kernel of main at 904bcce; pass v6f for the default kernel of the v6.2 library. The v6/v6f comparison of
 // Table 2 is tests/gpu/table2_v6_2.mjs.
 import { launch } from './browser.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';

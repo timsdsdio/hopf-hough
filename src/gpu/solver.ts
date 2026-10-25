@@ -9,7 +9,7 @@ import type { PointField } from '../core/suite.js';
 import { LEGACY_FRAGMENT_SHADER, LEGACY_VERTEX_SHADER } from './legacyShader.js';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './shader.js';
 
-/** Kernel names, as in the app's Kernel button: v6f (default), v6 (preprint v6) and the original v5 algorithm ('legacy'). */
+/** Kernel names, as in the app's Kernel button: v6f (default), v6 and the original v5 algorithm ('legacy'). */
 export type KernelName = 'v6f' | 'v6' | 'legacy';
 
 export interface ShaderSources {
@@ -27,7 +27,8 @@ export function productionFragment(defines: readonly string[] = []): string {
 }
 
 export const LEGACY_SHADERS: ShaderSources = { vertex: LEGACY_VERTEX_SHADER, fragment: LEGACY_FRAGMENT_SHADER, production: false, kernel: 'legacy' };
-/** The v6 kernel (preprint v6): double-float root function at the knots and inside the segment. */
+/** The v6 kernel: double-float root function at the knots and inside the segment. Bit-identical to v6 on main at
+ * commit 904bcce (κ-form radiation term and Newton fix since v6.0.0; not the v6.0.0 kernel of preprint v6/v6.1). */
 export const V6_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: FRAGMENT_SHADER, production: true, f32n: false, kernel: 'v6' };
 /** v6 with known-path segments compiled in (C2 quintic + degree-8 certificate on knots flagged exact; see SolverConfig.knownPath). */
 export const V6_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['KNOWN_PATH']), production: true, f32n: false, kernel: 'v6' };
@@ -39,11 +40,11 @@ export const V6_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fra
 export const V6F_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N']), production: true, f32n: true, kernel: 'v6f' };
 /** v6f with known-path segments compiled in. */
 export const V6F_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N', 'KNOWN_PATH']), production: true, f32n: true, kernel: 'v6f' };
-/** The default production kernel (v6f). Use V6_SHADERS for the preprint-v6 kernel. */
+/** The default production kernel (v6f). Use V6_SHADERS for the v6 kernel. */
 export const PRODUCTION_SHADERS: ShaderSources = V6F_SHADERS;
 /**
  * The default production kernel with known-path segments compiled in (v6f). A separate program so the
- * plain kernel is unchanged. Use V6_KNOWN_PATH_SHADERS for the preprint-v6 kernel.
+ * plain kernel is unchanged. Use V6_KNOWN_PATH_SHADERS for the v6 kernel.
  */
 export const KNOWN_PATH_SHADERS: ShaderSources = V6F_KNOWN_PATH_SHADERS;
 

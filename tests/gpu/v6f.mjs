@@ -1,9 +1,10 @@
 // Checks for the v6f kernel (v6 compiled with F32N) and for the v6 kernel it leaves unchanged.
 // Headless Chromium + SwiftShader (IEEE float32 WebGL2). Library (dist/hopf-hough.iife.js) and the author's app
 // (web/index.html):
-//  1. v6 bit-identity: the library's V6_SHADERS / V6_KNOWN_PATH_SHADERS against the v6.1 shader kept in
-//     reference/shader_v6_1.glsl (field readback and rendered pixels); the app's v6 kernel against the v6.1 app
-//     kept in reference/web_v6_1.html (readback and frames, ring and known path). The app's v5 kernel is checked
+//  1. v6 bit-identity: the library's V6_SHADERS / V6_KNOWN_PATH_SHADERS against the v6 shader of main at commit 904bcce
+//     (κ-form radiation term and Newton fix; not the v6.0.0 kernel of preprint v6.1), kept in
+//     reference/shader_v6_1.glsl (field readback and rendered pixels); the app's v6 kernel against the app of main at
+//     904bcce, kept in reference/web_v6_1.html (readback and frames, ring and known path). The app's v5 kernel is checked
 //     against reference/web_original.html in web_app.mjs.
 //  2. v6f accuracy at γ = 70.7 and 223.6 against the float64 reference (pulse sweep, no softening), on the known path
 //     and on the live path (library: ring-buffer history; app: the ring after 600 live steps); v6f also below v6.
@@ -17,7 +18,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const APP = 'file://' + resolve(root, 'web/index.html');
 const APP_V61 = 'file://' + resolve(root, 'reference/web_v6_1.html');
 
-// Library-side checks, run inside the page (H = HopfHough). refFrag: the v6.1 production fragment shader.
+// Library-side checks, run inside the page (H = HopfHough). refFrag: the v6 production fragment shader of main at 904bcce.
 function libraryChecks(refFrag) {
   const H = HopfHough, kb = { 128: 9, 512: 11, 2048: 13 };
   const canvas = (w = 16, h = 16) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -53,7 +54,7 @@ function libraryChecks(refFrag) {
     .map((p) => (df64 ? p : { x: p.x, y: p.y }));
   const gridPts = () => { const p = []; for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) p.push({ x: -1.4 + 2.8 * i / 15, y: -1.4 + 2.8 * j / 15 }); return p; };
 
-  // 1. v6 bit-identity against the v6.1 shader
+  // 1. v6 bit-identity against the v6 shader of main at 904bcce
   const cv = canvas(W, Hh), cr = canvas(W, Hh), ckv = canvas(W, Hh), ckr = canvas(W, Hh);
   const v6 = new H.GpuSolver(cv, H.V6_SHADERS), ref = new H.GpuSolver(cr, REF);
   const v6k = new H.GpuSolver(ckv, H.V6_KNOWN_PATH_SHADERS), refk = new H.GpuSolver(ckr, REFK);
@@ -153,7 +154,7 @@ export async function runV6fChecks(log) {
     await page.close();
     check(errs.length === 0, 'library page has no errors' + (errs.length ? ': ' + errs.join('; ') : ''));
     check(def[0] === 'v6f' && def[1] === 'v6f' && def[2] === true, `library default kernel is v6f (PRODUCTION_SHADERS ${def[0]}, KNOWN_PATH_SHADERS ${def[1]}, GpuSolver() f32n ${def[2]})`);
-    for (const r of lib.identity) check(r.same, `library v6 bit-identical to the v6.1 shader: ${r.what} (${r.n} values)`);
+    for (const r of lib.identity) check(r.same, `library v6 bit-identical to the v6 shader at main 904bcce: ${r.what} (${r.n} values)`);
     // Limits about 2x the SwiftShader measurement (docs/ACCURACY.md section 7); v6 is 10-2000x larger on the known path.
     const LIM = { '0.9999|512|known': 3e-4, '0.9999|512|ring': 0.03, '0.9999|2048|known': 3e-4, '0.9999|2048|ring': 4e-3,
       '0.99999|512|known': 1.5e-3, '0.99999|512|ring': 0.12, '0.99999|2048|known': 1e-3, '0.99999|2048|ring': 0.012 };
@@ -165,7 +166,7 @@ export async function runV6fChecks(log) {
     }
     for (const p of lib.pixels) check(p.maxd <= 3 && p.diff / p.bytes < 2e-3, `library display path v6f vs v6, ${p.what}: ${p.diff} of ${p.bytes} bytes differ, max ${p.maxd}/255`);
 
-    // ---------------- app: v6 against the v6.1 app ----------------
+    // ---------------- app: v6 against the app of main at 904bcce ----------------
     const SCENES = [['synchrotron', false, 4, 512, 11], ['oscillator', false, 4, 128, 9], ['synchrotron', true, 4, 512, 11], ['swarm', true, 8, 128, 9]];
     const old = await open(browser, APP_V61);
     const A = [];
@@ -178,7 +179,7 @@ export async function runV6fChecks(log) {
       const b = await app.page.evaluate(SNAP('v6', ...SCENES[i])), a = A[i];
       const sameF = a.field.length === b.field.length && a.field.every((v, j) => Object.is(v, b.field[j]));
       const sameP = a.w === b.w && a.h === b.h && a.px.every((v, j) => v === b.px[j]);
-      check(sameF && sameP, `app v6 kernel bit-identical to v6.1, ${mode} ${known ? 'known' : 'ring'} ${n} sources M=${M}: readback (${a.field.length / 4} points) and frame (${b.w}×${b.h})`);
+      check(sameF && sameP, `app v6 kernel bit-identical to main 904bcce, ${mode} ${known ? 'known' : 'ring'} ${n} sources M=${M}: readback (${a.field.length / 4} points) and frame (${b.w}×${b.h})`);
     }
 
     // ---------------- app: v6f accuracy ----------------

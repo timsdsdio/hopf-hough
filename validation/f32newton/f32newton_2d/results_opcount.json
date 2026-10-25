@@ -10,93 +10,253 @@
   "evalSeg": 110,
   "segCoef": 150,
   "segCoef_f32n_extra": 30,
-  "kernel": 150
+  "kernel": 150,
+  "fix_gate": 7,
+  "fix_consts_cubic": 426,
+  "fix_consts_quint": 456,
+  "fix_inc_cubic": 13,
+  "fix_inc_quint": 22,
+  "fix_field_cubic": 89,
+  "fix_field_quint": 95
  },
  "rows": [
   {
-   "case": "sweep gamma 71 M512 ring (readback)",
+   "case": "sweep gamma 71 M512 ring",
+   "path": "readback",
+   "gate": "on",
    "v6": 13890.7578125,
-   "v6f": 2866.7734375
+   "v6f": 3485.359375,
+   "v6f_nofix": 2873.7734375
   },
   {
-   "case": "sweep gamma 71 M2048 ring (readback)",
+   "case": "sweep gamma 71 M2048 ring",
+   "path": "readback",
+   "gate": "on",
    "v6": 14647.7421875,
-   "v6f": 2921.23828125
+   "v6f": 3540.23046875,
+   "v6f_nofix": 2928.23828125
   },
   {
-   "case": "sweep gamma 71 M512 known (readback)",
+   "case": "sweep gamma 71 M512 known",
+   "path": "readback",
+   "gate": "on",
    "v6": 14061.921875,
-   "v6f": 3112.2109375
+   "v6f": 3835.8984375,
+   "v6f_nofix": 3119.2109375
   },
   {
-   "case": "sweep gamma 224 M2048 known (readback)",
+   "case": "sweep gamma 224 M2048 known",
+   "path": "readback",
+   "gate": "on",
    "v6": 15347.7265625,
-   "v6f": 3716.80078125
+   "v6f": 4467.47265625,
+   "v6f_nofix": 3723.80078125
   },
   {
-   "case": "sweep gamma 224 M2048 live (readback)",
+   "case": "sweep gamma 224 M2048 live",
+   "path": "readback",
+   "gate": "on",
    "v6": 15286.4140625,
-   "v6f": 3333.5390625
+   "v6f": 3961.3671875,
+   "v6f_nofix": 3340.5390625
   },
   {
-   "case": "32 sources M128 known display",
+   "case": "32 sources M128 known (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2222.507080078125,
-   "v6f": 1794.080078125
+   "v6f": 1801.080078125
   },
   {
-   "case": "32 sources M128 known full",
+   "case": "32 sources M128 known (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2222.507080078125,
+   "v6f": 2423.04296875,
+   "v6f_upper": 2544.751953125
+  },
+  {
+   "case": "32 sources M128 known (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 6962.12744140625,
-   "v6f": 2193.866943359375
+   "v6f": 2200.866943359375
   },
   {
-   "case": "32 sources M128 live display",
+   "case": "32 sources M128 known (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 6962.12744140625,
+   "v6f": 2829.94384765625,
+   "v6f_upper": 2944.538818359375
+  },
+  {
+   "case": "32 sources M128 live (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2226.095947265625,
-   "v6f": 1691.1953125
+   "v6f": 1698.1953125
   },
   {
-   "case": "32 sources M128 live full",
+   "case": "32 sources M128 live (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2226.095947265625,
+   "v6f": 2254.7137451171875,
+   "v6f_upper": 2327.046875
+  },
+  {
+   "case": "32 sources M128 live (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 6973.14453125,
-   "v6f": 2077.8828125
+   "v6f": 2084.8828125
   },
   {
-   "case": "32 sources M512 known display",
+   "case": "32 sources M128 live (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 6973.14453125,
+   "v6f": 2645.3748779296875,
+   "v6f_upper": 2713.734375
+  },
+  {
+   "case": "32 sources M512 known (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2231.16845703125,
-   "v6f": 1800.32958984375
+   "v6f": 1807.32958984375
   },
   {
-   "case": "32 sources M512 known full",
+   "case": "32 sources M512 known (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2231.16845703125,
+   "v6f": 2428.5244140625,
+   "v6f_upper": 2551.00146484375
+  },
+  {
+   "case": "32 sources M512 known (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 7972.66455078125,
-   "v6f": 2197.27099609375
+   "v6f": 2204.27099609375
   },
   {
-   "case": "32 sources M512 live display",
+   "case": "32 sources M512 known (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 7972.66455078125,
+   "v6f": 2832.2978515625,
+   "v6f_upper": 2947.94287109375
+  },
+  {
+   "case": "32 sources M512 live (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2233.56103515625,
-   "v6f": 1700.0625
+   "v6f": 1707.0625
   },
   {
-   "case": "32 sources M512 live full",
+   "case": "32 sources M512 live (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2233.56103515625,
+   "v6f": 2263.2333984375,
+   "v6f_upper": 2335.9140625
+  },
+  {
+   "case": "32 sources M512 live (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 7988.711181640625,
-   "v6f": 2085.4375
+   "v6f": 2092.4375
   },
   {
-   "case": "32 sources M2048 known display",
+   "case": "32 sources M512 live (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 7988.711181640625,
+   "v6f": 2652.4931640625,
+   "v6f_upper": 2721.2890625
+  },
+  {
+   "case": "32 sources M2048 known (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2252.8529052734375,
-   "v6f": 1810.9854736328125
+   "v6f": 1817.9854736328125
   },
   {
-   "case": "32 sources M2048 known full",
+   "case": "32 sources M2048 known (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2252.8529052734375,
+   "v6f": 2438.8446044921875,
+   "v6f_upper": 2561.6573486328125
+  },
+  {
+   "case": "32 sources M2048 known (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 9019.845458984375,
-   "v6f": 2215.5889892578125
+   "v6f": 2222.5889892578125
   },
   {
-   "case": "32 sources M2048 live display",
+   "case": "32 sources M2048 known (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 9019.845458984375,
+   "v6f": 2851.0374755859375,
+   "v6f_upper": 2966.2608642578125
+  },
+  {
+   "case": "32 sources M2048 live (beta 0.8, counts measured)",
+   "path": "display",
+   "gate": "off",
    "v6": 2256.0230712890625,
-   "v6f": 1710.7073974609375
+   "v6f": 1717.7073974609375
   },
   {
-   "case": "32 sources M2048 live full",
+   "case": "32 sources M2048 live (beta-0.8 counts, fix forced on)",
+   "path": "display",
+   "gate": "on",
+   "v6": 2256.0230712890625,
+   "v6f": 2273.648193359375,
+   "v6f_upper": 2346.5589599609375
+  },
+  {
+   "case": "32 sources M2048 live (beta 0.8, counts measured)",
+   "path": "readback",
+   "gate": "off",
    "v6": 9029.425537109375,
-   "v6f": 2099.2899169921875
+   "v6f": 2106.2899169921875
+  },
+  {
+   "case": "32 sources M2048 live (beta-0.8 counts, fix forced on)",
+   "path": "readback",
+   "gate": "on",
+   "v6": 9029.425537109375,
+   "v6f": 2666.331298828125,
+   "v6f_upper": 2735.1414794921875
   }
- ]
+ ],
+ "ranges": {
+  "readback_gate_off": [
+   0.233,
+   0.316
+  ],
+  "readback_gate_on": [
+   0.242,
+   0.423
+  ],
+  "display_gate_off": [
+   0.761,
+   0.81
+  ],
+  "display_gate_on": [
+   1.008,
+   1.145
+  ]
+ }
 }
