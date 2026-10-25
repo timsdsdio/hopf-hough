@@ -1,12 +1,12 @@
 // Checks for the author's app (web/index.html, served at the site root) with the v6 and v6f kernels ported in.
-//  1. loads without console errors on the default kernel (v6f); the kernel button cycles v6f -> v6 -> v5 -> v6f;
+//  1. loads without console errors on the default kernel (v6f); the kernel button cycles v6f -> v6fp (v6f precise) -> v6 -> v5 -> v6f;
 //     the mask button works;
 //  2. the v5 kernel is bit-identical to the original file (git HEAD~ version kept in reference/web_original.html):
 //     same field readback on a grid and same rendered pixels;
 //  3. the v6 kernel reproduces the production accuracy on the pulse sweep (no softening);
 //  4. known-path mode (exact knots, C2 quintic): pulse sweep accuracy, ring accuracy after live steps, drag hand-off;
-//  5. relative frame time v5 / v6 / v6f / known path (software rendering: relative only).
-// v6f accuracy, v6 bit-identity to main 904bcce and v6f display pixels are in v6f.mjs.
+//  5. relative frame time v5 / v6 / v6f / v6fp / known path (software rendering: relative only).
+// v6f/v6fp accuracy, v6 bit-identity to main 904bcce and v6f/v6fp display pixels are in v6f.mjs.
 import { launch } from './browser.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -118,15 +118,15 @@ export async function runWebAppChecks(log) {
     const kernelAtLoad = await app.page.evaluate(kState);
     check(kernelAtLoad.startsWith('v6f|Kernel: v6f'), `web app starts on the v6f kernel (${kernelAtLoad})`);
     const cycle = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       await app.page.evaluate(() => document.getElementById('btn-kernel').click());
       cycle.push(await app.page.evaluate(kState));
     }
     await app.page.evaluate(() => document.getElementById('btn-mask').click());
     const m = await app.page.evaluate('state.showMask');
     await app.page.evaluate(() => document.getElementById('btn-mask').click());
-    const want = ['v6|Kernel: v6', 'v5|Kernel: v5', 'v6f|Kernel: v6f'];
-    check(cycle.every((c, i) => c.startsWith(want[i])) && m === true, `kernel button cycles v6f -> v6 -> v5 -> v6f (${cycle.join(', ')}); mask toggles (${m})`);
+    const want = ['v6fp|Kernel: v6f precise', 'v6|Kernel: v6 ', 'v5|Kernel: v5', 'v6f|Kernel: v6f ('];
+    check(cycle.every((c, i) => c.startsWith(want[i])) && m === true, `kernel button cycles v6f -> v6f precise -> v6 -> v5 -> v6f (${cycle.join(', ')}); mask toggles (${m})`);
 
     for (const mode of MODES) {
       const A = a[mode], b = await app.page.evaluate(SNAPSHOT(mode));
@@ -155,22 +155,26 @@ export async function runWebAppChecks(log) {
 
     const relRms = (a, b) => { let num = 0, den = 0; a.forEach((v, j) => { num += (v[0] - b[j][0]) ** 2 + (v[1] - b[j][1]) ** 2; den += b[j][0] ** 2 + b[j][1] ** 2; }); return Math.sqrt(num / den); };
     const hand = {};
-    for (const kernel of ['v6', 'v6f']) {
+    for (const kernel of ['v6', 'v6f', 'v6fp']) {
       const hA = await app.page.evaluate(HANDOFF(true, kernel)), hB = await app.page.evaluate(HANDOFF(false, kernel));
       const rel = relRms(hA.e, hB.e);
       hand[kernel] = hA;
       check(hA.rejoin > 0 && hA.rejoin === hB.rejoin && rel < 1e-3,
         `drag hand-off (${kernel}): rejoins at step ${hA.rejoin} (ring mode ${hB.rejoin}); known-path vs ring field ${rel.toExponential(2)} RMS < 1e-3; ${hA.exact}/512 exact knots`);
     }
-    const relK = relRms(hand.v6f.e, hand.v6.e);
-    check(hand.v6f.rejoin === hand.v6.rejoin && relK < 1e-5, `drag hand-off, v6f vs v6 field after rejoin (known path): ${relK.toExponential(2)} RMS < 1e-5`);
+    for (const kf of ['v6f', 'v6fp']) {
+      const relK = relRms(hand[kf].e, hand.v6.e);
+      check(hand[kf].rejoin === hand.v6.rejoin && relK < 1e-5, `drag hand-off, ${kf} vs v6 field after rejoin (known path): ${relK.toExponential(2)} RMS < 1e-5`);
+    }
 
     const t5 = await app.page.evaluate(FRAMES('v5'));
     const t6 = await app.page.evaluate(FRAMES('v6'));
     const tf = await app.page.evaluate(FRAMES('v6f'));
     const tk = await app.page.evaluate(FRAMES('v6', true));
     const tfk = await app.page.evaluate(FRAMES('v6f', true));
-    log(`info frame time, default scene (32 sources, M=128), software rendering (relative only): v5 ${t5.toFixed(0)} ms, v6 ${t6.toFixed(0)} ms (ratio ${(t6 / t5).toFixed(2)}), v6f ${tf.toFixed(0)} ms (${(tf / t5).toFixed(2)}), known path v6 ${tk.toFixed(0)} ms (${(tk / t5).toFixed(2)}), v6f ${tfk.toFixed(0)} ms (${(tfk / t5).toFixed(2)})`);
+    const tp = await app.page.evaluate(FRAMES('v6fp'));
+    const tpk = await app.page.evaluate(FRAMES('v6fp', true));
+    log(`info frame time, default scene (32 sources, M=128), software rendering (relative only): v5 ${t5.toFixed(0)} ms, v6 ${t6.toFixed(0)} ms (ratio ${(t6 / t5).toFixed(2)}), v6f ${tf.toFixed(0)} ms (${(tf / t5).toFixed(2)}; ${(tf / t6).toFixed(2)}x v6), v6fp ${tp.toFixed(0)} ms (${(tp / t5).toFixed(2)}; ${(tp / t6).toFixed(2)}x v6); known path v6 ${tk.toFixed(0)} ms (${(tk / t5).toFixed(2)}), v6f ${tfk.toFixed(0)} ms (${(tfk / t5).toFixed(2)}), v6fp ${tpk.toFixed(0)} ms (${(tpk / t5).toFixed(2)})`);
   } finally {
     await browser.close();
   }

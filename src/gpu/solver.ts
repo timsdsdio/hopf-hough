@@ -9,14 +9,14 @@ import type { PointField } from '../core/suite.js';
 import { LEGACY_FRAGMENT_SHADER, LEGACY_VERTEX_SHADER } from './legacyShader.js';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './shader.js';
 
-/** Kernel names, as in the app's Kernel button: v6f (default), v6 and the original v5 algorithm ('legacy'). */
-export type KernelName = 'v6f' | 'v6' | 'legacy';
+/** Kernel names, as in the app's Kernel button: v6f (default), v6fp (v6f precise), v6 and the original v5 algorithm ('legacy'). */
+export type KernelName = 'v6f' | 'v6fp' | 'v6' | 'legacy';
 
 export interface ShaderSources {
   vertex: string;
   fragment: string;
   production: boolean;
-  /** Kernel compiled with F32N (v6f): the solver uploads the CPU chord deficit in u_texPosLo.z. */
+  /** Kernel compiled with F32N (v6f, v6fp): the solver uploads the CPU chord deficit in u_texPosLo.z. */
   f32n?: boolean;
   kernel?: KernelName;
 }
@@ -33,18 +33,26 @@ export const V6_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: FRAG
 /** v6 with known-path segments compiled in (C2 quintic + degree-8 certificate on knots flagged exact; see SolverConfig.knownPath). */
 export const V6_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['KNOWN_PATH']), production: true, f32n: false, kernel: 'v6' };
 /**
- * The v6f kernel: the v6 source compiled with F32N. Float32 incremental root inside the segment with the chord
- * deficit from the CPU in float64, float32 knot bisection with a double-float check of the bracket, and exact
- * cancelling products against the double-float separation at high γ. See docs/ACCURACY.md.
+ * The v6f kernel (default): the v6 source compiled with F32N and F32N_NOFIX. Float32 incremental root inside the
+ * segment with the chord deficit from the CPU in float64, and float32 knot bisection with a double-float check of
+ * the bracket. The field's cross/dot products stay plain float32 (no field-floor fix). See docs/ACCURACY.md.
  */
-export const V6F_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N']), production: true, f32n: true, kernel: 'v6f' };
+export const V6F_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N', 'F32N_NOFIX']), production: true, f32n: true, kernel: 'v6f' };
 /** v6f with known-path segments compiled in. */
-export const V6F_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N', 'KNOWN_PATH']), production: true, f32n: true, kernel: 'v6f' };
-/** The default production kernel (v6f). Use V6_SHADERS for the v6 kernel. */
+export const V6F_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N', 'F32N_NOFIX', 'KNOWN_PATH']), production: true, f32n: true, kernel: 'v6f' };
+/**
+ * The v6fp kernel ("v6f precise"): v6f plus the field-floor fix (the v6 source compiled with F32N only). At high γ
+ * (|u| > 4) the cancelling cross/dot products of the field are taken against the double-float separation with
+ * exact products. More accurate than v6f at high γ, slower (about 0.77x v6's frame rate on an M1 Max).
+ */
+export const V6FP_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N']), production: true, f32n: true, kernel: 'v6fp' };
+/** v6fp with known-path segments compiled in. */
+export const V6FP_KNOWN_PATH_SHADERS: ShaderSources = { vertex: VERTEX_SHADER, fragment: productionFragment(['F32N', 'KNOWN_PATH']), production: true, f32n: true, kernel: 'v6fp' };
+/** The default production kernel (v6f). Use V6FP_SHADERS for v6f precise and V6_SHADERS for the v6 kernel. */
 export const PRODUCTION_SHADERS: ShaderSources = V6F_SHADERS;
 /**
  * The default production kernel with known-path segments compiled in (v6f). A separate program so the
- * plain kernel is unchanged. Use V6_KNOWN_PATH_SHADERS for the v6 kernel.
+ * plain kernel is unchanged. Use V6FP_KNOWN_PATH_SHADERS / V6_KNOWN_PATH_SHADERS for the other kernels.
  */
 export const KNOWN_PATH_SHADERS: ShaderSources = V6F_KNOWN_PATH_SHADERS;
 
@@ -52,6 +60,8 @@ export const KNOWN_PATH_SHADERS: ShaderSources = V6F_KNOWN_PATH_SHADERS;
 export function kernelShaders(kernel: KernelName = 'v6f', knownPath = false): ShaderSources {
   if (kernel === 'legacy') return LEGACY_SHADERS;
   if (kernel === 'v6') return knownPath ? V6_KNOWN_PATH_SHADERS : V6_SHADERS;
+  if (kernel === 'v6fp') return knownPath ? V6FP_KNOWN_PATH_SHADERS : V6FP_SHADERS;
+  if (kernel !== 'v6f') throw new Error(`unknown kernel: ${String(kernel)}`);
   return knownPath ? V6F_KNOWN_PATH_SHADERS : V6F_SHADERS;
 }
 
@@ -76,7 +86,7 @@ export class GpuSolver {
   readonly gl: WebGL2RenderingContext;
   readonly program: WebGLProgram;
   readonly production: boolean;
-  /** True for the v6f kernel (F32N): upload() writes the chord deficit into u_texPosLo.z. */
+  /** True for the v6f and v6fp kernels (F32N): upload() writes the chord deficit into u_texPosLo.z. */
   readonly f32n: boolean;
   /** Readback tile size (points per draw = width × height). */
   readonly readW: number;

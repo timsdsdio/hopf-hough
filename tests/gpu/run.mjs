@@ -4,7 +4,7 @@
 //  3. The single-file app loads without errors or external requests.
 //  4. The author's app (web/index.html, site root): v5 kernel bit-identical to the original, v6 kernel accuracy.
 //  5. Validity indicator on dragged histories (acceleration terms) and on smooth / near-rest motion.
-//  6. v6f kernel (library and app): accuracy at γ = 71 and 224, v6 bit-identical to main 904bcce, display pixels vs v6.
+//  6. v6f and v6fp kernels (library and app): accuracy at γ = 71 and 224, v6 bit-identical to main 904bcce, display pixels vs v6.
 import { launch } from './browser.mjs';
 import { runWebAppChecks } from './web_app.mjs';
 import { runDragMaskChecks } from './drag_mask.mjs';
@@ -38,9 +38,9 @@ try {
   check(same(legacy.comp, base.comp128Reach220), `legacy shader reproduces original (grid comparison): ${legacy.comp.shockL2.toFixed(4)}%`);
 
   // 2. Production accuracy thresholds (exact LW, no softening, float32-rounded observers), for the default kernel
-  //    (v6f, PRODUCTION_SHADERS) and for v6 (V6_SHADERS). Tight enough that the v6.0.0 kernel (cross-product
+  //    (v6f, PRODUCTION_SHADERS), for v6f precise (V6FP_SHADERS) and for v6 (V6_SHADERS). Tight enough that the v6.0.0 kernel (cross-product
   //    radiation term, open Newton bracket: 0.0095% / 0.069% at M = 512) fails them.
-  for (const [name, sh, shK] of [['v6f', 'PRODUCTION_SHADERS', 'KNOWN_PATH_SHADERS'], ['v6', 'V6_SHADERS', 'V6_KNOWN_PATH_SHADERS']]) {
+  for (const [name, sh, shK] of [['v6f', 'PRODUCTION_SHADERS', 'KNOWN_PATH_SHADERS'], ['v6fp', 'V6FP_SHADERS', 'V6FP_KNOWN_PATH_SHADERS'], ['v6', 'V6_SHADERS', 'V6_KNOWN_PATH_SHADERS']]) {
     const prod = await page.evaluate((sh) => {
       const H = HopfHough, s = new H.GpuSolver(document.getElementById('b'), H[sh]), B = H.gpuBackend(s);
       const o = { base: { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false } };
@@ -58,8 +58,9 @@ try {
       const H = HopfHough, s = new H.GpuSolver(document.getElementById('b'), H[shK]), B = H.gpuBackend(s);
       const o = { base: { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false, knownPath: true } };
       const run = (beta, mT, kBin) => H.runCase({ beta, motion: 'synchrotron', mT, kBin, velMode: 2, nShock: 256 }, B, o);
-      return { g7: run(0.99, 128, 9), g22: run(0.999, 512, 11) };
+      return { kernel: H[shK].kernel, g7: run(0.99, 128, 9), g22: run(0.999, 512, 11) };
     }, shK);
+    check(kp.kernel === name, `${shK} is the ${name} kernel (${kp.kernel})`);
     check(kp.g7.shockL2 < 5e-4, `known path ${name} γ=7.1,  M=128: ${kp.g7.shockL2.toPrecision(3)}% < 5e-4% (ring: ${prod.g7.shockL2.toPrecision(3)}%)`);
     check(kp.g22.shockL2 < 2e-3, `known path ${name} γ=22.4, M=512: ${kp.g22.shockL2.toPrecision(3)}% < 2e-3% (ring: ${prod.g22.shockL2.toPrecision(3)}%)`);
   }
@@ -86,7 +87,7 @@ try {
 if (!(await runWebAppChecks((line) => console.log(line.replace(/^ok   /, 'ok   ').replace(/^FAIL /, 'FAIL '))))) failures++;
 // 5. Validity mask on live (dragged) histories.
 if (!(await runDragMaskChecks((line) => console.log(line)))) failures++;
-// 6. v6f kernel.
+// 6. v6f and v6fp kernels.
 if (!(await runV6fChecks((line) => console.log(line)))) failures++;
 console.log(failures ? `\n${failures} check(s) failed` : '\nall GPU checks passed');
 process.exit(failures ? 1 : 0);

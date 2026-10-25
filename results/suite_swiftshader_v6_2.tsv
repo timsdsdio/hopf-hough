@@ -1,4 +1,4 @@
-# Author's app (web/index.html), "Run Evolved GPU Suite" for each kernel, commit 904bcce + working tree (release/v6.2)
+# Author's app (web/index.html), "Run Evolved GPU Suite" for each kernel, commit f6beda5 + working tree (release/v6.2)
 # Headless Chromium (Chrome/153.0.0.0), ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver). SwiftShader is IEEE float32 software rendering; no timings here.
 # Relative L2 error vs the exact LW field at the same float32 points, synchrotron pulse sweep (256 observers) and ring (64 observers, "bulk").
 # Ring-buffer (live) history, as the app suite. Number formatting widened to 3 significant digits (tests/gpu/suite_web.mjs); computation unchanged.
@@ -6,9 +6,14 @@
 kernel	beta	gamma	pos_err_128	pos_ratio_128_512	bulk_128	pulse_128_norm	pulse_512_4vel	pulse_2048_4vel
 v6f	0.8000	1.7	7.2e-8	1	0.00297%	0.00671%	0.000444%	0.0000357%
 v6f	0.9500	3.2	5.8e-8	1	0.116%	0.0170%	0.00103%	0.0000651%
-v6f	0.9900	7.1	7.1e-8	1	0.0118%	0.0384%	0.00220%	0.000153%
-v6f	0.9990	22.4	6.7e-8	1	0.0135%	0.127%	0.00759%	0.000484%
-v6f	0.9999	70.7	6.5e-8	1	0.0451%	0.393%	0.0236%	0.00160%
+v6f	0.9900	7.1	7.1e-8	1	0.0118%	0.0384%	0.00220%	0.000157%
+v6f	0.9990	22.4	6.7e-8	1	0.0135%	0.127%	0.00758%	0.000555%
+v6f	0.9999	70.7	6.5e-8	1	0.0451%	0.393%	0.0233%	0.00176%
+v6fp	0.8000	1.7	7.2e-8	1	0.00297%	0.00671%	0.000444%	0.0000357%
+v6fp	0.9500	3.2	5.8e-8	1	0.116%	0.0170%	0.00103%	0.0000651%
+v6fp	0.9900	7.1	7.1e-8	1	0.0118%	0.0384%	0.00220%	0.000153%
+v6fp	0.9990	22.4	6.7e-8	1	0.0135%	0.127%	0.00759%	0.000484%
+v6fp	0.9999	70.7	6.5e-8	1	0.0451%	0.393%	0.0236%	0.00160%
 v6	0.8000	1.7	7.2e-8	1	0.00298%	0.00671%	0.000443%	0.0000347%
 v6	0.9500	3.2	5.8e-8	1	0.116%	0.0170%	0.00102%	0.0000672%
 v6	0.9900	7.1	7.1e-8	1	0.0117%	0.0384%	0.00219%	0.000182%
@@ -20,7 +25,8 @@ v5	0.9900	7.1	7.1e-7	1	0.0102%	0.0391%	0.00975%	0.0151%
 v5	0.9990	22.4	4.9e-7	1	0.0144%	0.245%	0.217%	0.287%
 v5	0.9999	70.7	4.1e-4	1247	0.588%	46.8%	7.58%	7.78%
 # gamma = 70.7 convergence (M = 512 | 1024 | 2048) and the v5-era grid / domain tests, as printed by the suite:
-# v6f: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 0.0236% | 1024: 0.00607% | 2048: 0.00160% (GPU vs CPU float32 emulation of the v5 algorithm: 7.23%; with v6 selected this measures the kernel change, not an error) / - Compactified L·tan(θ/2): 0.0384% | Quadratic u²: 1.60% | Log-Exp: 0.330% | Uniform: 761% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
-# v6: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 0.0363% | 1024: 0.0158% | 2048: 0.00703% (GPU vs CPU float32 emulation of the v5 algorithm: 7.23%; with v6 selected this measures the kernel change, not an error) / - Compactified L·tan(θ/2): 0.0384% | Quadratic u²: 1.60% | Log-Exp: 0.330% | Uniform: 761% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
+# v6f: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 0.0233% | 1024: 0.00588% | 2048: 0.00176% (GPU vs CPU float32 emulation of the v5 algorithm: 7.23%; with v6, v6f or v6f precise selected this measures the kernel change, not an error) / - Compactified L·tan(θ/2): 0.0384% | Quadratic u²: 1.60% | Log-Exp: 0.330% | Uniform: 761% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
+# v6fp: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 0.0236% | 1024: 0.00607% | 2048: 0.00160% (GPU vs CPU float32 emulation of the v5 algorithm: 7.23%; with v6, v6f or v6f precise selected this measures the kernel change, not an error) / - Compactified L·tan(θ/2): 0.0384% | Quadratic u²: 1.60% | Log-Exp: 0.330% | Uniform: 761% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
+# v6: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 0.0363% | 1024: 0.0158% | 2048: 0.00703% (GPU vs CPU float32 emulation of the v5 algorithm: 7.23%; with v6, v6f or v6f precise selected this measures the kernel change, not an error) / - Compactified L·tan(θ/2): 0.0384% | Quadratic u²: 1.60% | Log-Exp: 0.330% | Uniform: 761% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
 # v5: - Spline Float64 vs Exact: 512: 0.0236% | 1024: 0.00602% | 2048: 0.00166% / - GPU Float32 vs Exact: 512: 7.58% | 1024: 9.60% | 2048: 7.78% (GPU vs CPU-F32 FMA Δ: 2.52%) / - Compactified L·tan(θ/2): 0.0391% | Quadratic u²: 4.42% | Log-Exp: 0.332% | Uniform: 103% / - Compactified: 1.62% vs Finite Buffer (R_max=18): 114% (Out of Buffer!)
 # console errors: none

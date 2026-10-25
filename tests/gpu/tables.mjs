@@ -1,13 +1,13 @@
 // Regenerates every table in the paper with the production solver (WebGL2 readback).
 // Usage: node tests/gpu/tables.mjs [which=all] [kernel=v6]. results/tables.json (README, docs/ACCURACY.md
-// sections 1-5; regenerated after the κ-form and Newton fixes) is the v6 kernel of main at 904bcce; pass v6f for the default kernel of the v6.2 library. The v6/v6f comparison of
+// sections 1-5; regenerated after the κ-form and Newton fixes) is the v6 kernel of main at 904bcce; pass v6f for the default kernel of the v6.2 library, v6fp for v6f precise. The v6/v6f/v6fp comparison of
 // Table 2 is tests/gpu/table2_v6_2.mjs.
 import { launch } from './browser.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 const root = new URL('../../', import.meta.url).pathname;
 const which = (process.argv[2] || 'all').split(',');
 const kernel = process.argv[3] || 'v6';
-if (!['v6', 'v6f'].includes(kernel)) throw new Error('kernel must be v6 or v6f');
+if (!['v6', 'v6f', 'v6fp'].includes(kernel)) throw new Error('kernel must be v6, v6f or v6fp');
 const browser = await launch();
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('pageerror', e.message));

@@ -10,3 +10,5 @@ The studies were run against a development copy of `web/index.html` that is iden
 GPU timings are from headless Chromium with SwiftShader and are relative only. Run with `node <script>.mjs` from the repository root after `npm ci`.
 
 Cost after the v6.2 review: `f32newton_2d/opcount_2d.py` now also counts the field-floor fix (readback and display paths, γ gate false and true; `results_opcount.json`), and `f32newton_floor/frame_ratio_v62.mjs` re-measures the SwiftShader frame-time ratios of v6, v6f and v6f with `F32N_NOFIX`, ring and known path, below and above the gate, over several interleaved rounds (`results_frame_ratio_v62.json`).
+
+Naming: these studies predate the v6.2 kernel split. Here "v6f" is the build with the field-floor fix, which the release ships as **v6f precise** (`v6fp`, `F32N`); "v6f with `F32N_NOFIX`" (and "before the fix", e.g. `acc_before.log`) is the release default **v6f** (`F32N` + `F32N_NOFIX`). `frame_ratio_v62.mjs` now takes both from the app's kernels; its recorded results were taken before the split. Real-hardware results (M1 Max, Safari): `results/suite_m1max_v6_2.txt`.

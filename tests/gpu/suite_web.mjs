@@ -1,5 +1,5 @@
 // Runs the verification suite of the author's app (web/index.html, "Run Evolved GPU Suite") headless for each kernel
-// (v6f, v6, v5) and writes results/suite_swiftshader_v6_2.tsv. The suite's computation is the app's own; only its
+// (v6f, v6fp, v6, v5) and writes results/suite_swiftshader_v6_2.tsv. The suite's computation is the app's own; only its
 // number formatting is widened (toFixed(2)/(4)/(5) -> 3 significant digits) so the table keeps small values.
 // Usage: node tests/gpu/suite_web.mjs [out.tsv]
 import { launch } from './browser.mjs';
@@ -34,7 +34,7 @@ await page.evaluate(() => {
 
 const rows = [];
 const notes = [];
-for (const kernel of ['v6f', 'v6', 'v5']) {
+for (const kernel of ['v6f', 'v6fp', 'v6', 'v5']) {
   const t0 = Date.now();
   const res = await page.evaluate((kernel) => {
     state.paused = true; state.kernel = kernel; selectKernel(); reseedAllSources();

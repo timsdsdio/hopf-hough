@@ -14,11 +14,12 @@
  *
  * Compile-time variants (prepended #defines; see solver.ts):
  *  - KNOWN_PATH: C2 quintic segments + degree-8 certificate on knots flagged exact.
- *  - F32N (kernel v6f): only f and d = x − z at the bracketing knot are double-float. Inside the segment the
+ *  - F32N (kernels v6f and v6fp): only f and d = x − z at the bracketing knot are double-float. Inside the segment the
  *    root function is a float32 sum of non-negative terms, with the chord deficit 1 − |v_chord|² supplied per
  *    knot by the CPU in float64 (u_texPosLo.z); the knot search is a float32 bisection with a double-float check
  *    of both bracket knots; at high γ (|u| > 4) the cancelling cross/dot products of the field are taken against
- *    the double-float separation with exact products. F32N_NOFIX removes that last part. F32N always uses the
+ *    the double-float separation with exact products (the field-floor fix). F32N_NOFIX removes that last part:
+ *    v6f (the default) = F32N + F32N_NOFIX, v6fp ("v6f precise") = F32N with the fix. F32N always uses the
  *    knot search + Newton (u_rootMode is not read), so the switch study above is meant for the v6 kernel.
  *    Without F32N the program is the v6 kernel, unchanged.
  */
@@ -657,8 +658,9 @@ float dotX(vec2 dh, vec2 dl, vec2 w) {
 // Only where it matters: the error is ~ eps gamma, so the fix is skipped (one branch per pixel-source, uniform across
 // pixels) unless the segment has |u| > 4 (gamma > 4.1, proper-velocity storage).
 FixC fixConsts(SegC c, vec2 dh, vec2 dl) {
-  // F32N_NOFIX (compile-time) removes the fix: same output and frame time as v6f before it (SwiftShader runs the
-  // gated-off branch anyway: +11-12% frame time there, validation/f32newton/f32newton_floor/results_frame_ratio_v62.json).
+  // F32N_NOFIX (compile-time) removes the fix: kernel v6f (the default); without it, v6fp ("v6f precise"). The fix costs
+  // +11-12% frame time in SwiftShader (validation/f32newton/f32newton_floor/results_frame_ratio_v62.json) and 43 -> 33 fps
+  // on an M1 Max (results/suite_m1max_v6_2.txt).
 #ifdef F32N_NOFIX
   FixC X; X.on = false;
 #else

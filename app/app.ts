@@ -41,7 +41,7 @@ const ui = {
 
 let sim: Simulation;
 let solver: GpuSolver | null = null;
-/** Production kernel: v6f (default) or v6 (?kernel=v6). */
+/** Production kernel: v6f (default), v6fp (?kernel=v6fp, v6f precise) or v6 (?kernel=v6). */
 let kernel: KernelName = 'v6f';
 let benchV6: GpuSolver | null = null;
 let trajectories: Trajectory[] = [];
@@ -438,8 +438,8 @@ function rendererName() {
 function benchmark() {
   if (!solver) return;
   // The precision / certificate / root-search switches are those of the v6 kernel: run them on a v6 solver
-  // (own canvas and context) when the main kernel is v6f.
-  if (kernel === 'v6f' && !benchV6) {
+  // (own canvas and context) when the main kernel is v6f or v6fp.
+  if (kernel !== 'v6' && !benchV6) {
     try { benchV6 = new GpuSolver(document.createElement('canvas'), kernelShaders('v6')); } catch { benchV6 = null; }
   }
   const v6s = kernel === 'v6' ? solver : benchV6;
@@ -456,8 +456,8 @@ function benchmark() {
     return (performance.now() - t0) / frames;
   };
   const variants: [string, Partial<SolverConfig>, GpuSolver | null][] = [
-    [kernel === 'v6f' ? 'production, v6f (float32 incremental root, CPU chord deficit, float32 knot search + df64 check)' : 'production, v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, solver],
-    ...(kernel === 'v6f' ? [['v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, v6s] as [string, Partial<SolverConfig>, GpuSolver | null]] : []),
+    [kernel === 'v6f' ? 'production, v6f (float32 incremental root, CPU chord deficit, float32 knot search + df64 check)' : kernel === 'v6fp' ? 'production, v6f precise (v6f + field-floor fix)' : 'production, v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, solver],
+    ...(kernel !== 'v6' ? [['v6 (double-float, |z′|² certificate, knots + 3 Newton)', {}, v6s] as [string, Partial<SolverConfig>, GpuSolver | null]] : []),
     ['v6, float32 root, |z′|² certificate, knots + 3 Newton', { precision: 0 }, v6s],
     ['legacy algorithm (v6 switches: float32, Theorem 1, spline bisection + 2 Newton)', { precision: 0, certMode: 0, rootMode: 0, newton: 2 }, v6s],
   ];
@@ -618,7 +618,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 
-/** Shareable settings: ?scenario=orbit&beta=0.99&n=1&mt=2048&omega=1.6&eps=0&kernel=v6 */
+/** Shareable settings: ?scenario=orbit&beta=0.99&n=1&mt=2048&omega=1.6&eps=0&kernel=v6 (or v6fp) */
 function readUrlParams() {
   const q = new URLSearchParams(location.search);
   const num = (k: string) => (q.has(k) && Number.isFinite(+q.get(k)!) ? +q.get(k)! : null);
@@ -630,7 +630,7 @@ function readUrlParams() {
   const e = num('eps'); if (e !== null && e >= 0) cfg.softEps = e;
   const mt = num('mt'); const kb: Record<number, number> = { 128: 9, 512: 11, 1024: 12, 2048: 13 };
   if (mt !== null && kb[mt]) { cfg.mT = mt; cfg.kBin = kb[mt]; }
-  const kn = q.get('kernel'); if (kn === 'v6' || kn === 'v6f') kernel = kn;
+  const kn = q.get('kernel'); if (kn === 'v6' || kn === 'v6f' || kn === 'v6fp') kernel = kn;
   if (q.get('x')) ui.customX = q.get('x')!;
   if (q.get('y')) ui.customY = q.get('y')!;
   // Reflect into the controls.

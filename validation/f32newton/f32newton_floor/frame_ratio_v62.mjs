@@ -3,20 +3,16 @@
 // is false for every source) and beta = 0.999 (gamma 22.4: gate true). Same frame protocol as tests/gpu/web_app.mjs.
 // SwiftShader: RELATIVE ONLY. Pages interleaved, ROUNDS rounds (default 5), each the mean of 3 frames after one warm-up
 // frame; medians and ranges over rounds are reported.
-// The NOFIX page is a temporary copy of web/index.html with `#ifdef F32N_NOFIX` -> `#if 1` (written to the OS temp
-// directory and deleted afterwards). Usage, from the repository root: node validation/f32newton/f32newton_floor/frame_ratio_v62.mjs
+// Since the v6.2 kernel split the app builds both: "v6f" below (key v6f, as in the recorded results_frame_ratio_v62.json)
+// is the app's v6fp kernel (F32N, with the fix), and "v6f_nofix" is the app's default v6f (F32N + F32N_NOFIX). The
+// recorded results were taken before the split, with a temporary copy of the app that had `#ifdef F32N_NOFIX` -> `#if 1`.
+// Usage, from the repository root: node validation/f32newton/f32newton_floor/frame_ratio_v62.mjs
 import { launch } from './browser.mjs';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, '..', '..', '..', 'web', 'index.html');
-const src = readFileSync(APP, 'utf8');
-if (src.split('#ifdef F32N_NOFIX').length !== 2) throw new Error('F32N_NOFIX switch not found exactly once');
-const tmp = mkdtempSync(join(tmpdir(), 'hh-nofix-'));
-const NOFIX = join(tmp, 'index_nofix.html');
-writeFileSync(NOFIX, src.replace('#ifdef F32N_NOFIX', '#if 1'));
 const ROUNDS = +(process.env.ROUNDS || 5);
 const browser = await launch();
 const errors = [];
@@ -42,8 +38,8 @@ const FRAMES = (kernel, known, beta) => `(() => {
   return (performance.now() - t0) / 3;
 })()`;
 try {
-  const app = await open(APP, 'app'), nofix = await open(NOFIX, 'nofix');
-  const variants = [['v6', app, 'v6'], ['v6f', app, 'v6f'], ['v6f_nofix', nofix, 'v6f']];
+  const app = await open(APP, 'app'), nofix = await open(APP, 'app2');   // two pages, interleaved as before
+  const variants = [['v6', app, 'v6'], ['v6f', app, 'v6fp'], ['v6f_nofix', nofix, 'v6f']];
   const rows = [];
   for (const beta of [0.8, 0.999]) for (const known of [false, true]) {
     const ms = Object.fromEntries(variants.map(([n]) => [n, []]));
@@ -63,5 +59,4 @@ try {
   writeFileSync(join(HERE, process.env.OUT || 'results_frame_ratio_v62.json'), JSON.stringify({ protocol: 'display path, 32 swarm sources, M=128, soft 0.06, mean of 3 frames per round, pages interleaved; SwiftShader, relative only', rows, errors }, null, 1));
 } finally {
   await browser.close();
-  rmSync(tmp, { recursive: true, force: true });
 }

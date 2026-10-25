@@ -1,4 +1,5 @@
-// Checks for the v6f kernel (v6 compiled with F32N) and for the v6 kernel it leaves unchanged.
+// Checks for the v6f kernels (v6 compiled with F32N): v6f, the default (F32N + F32N_NOFIX), and v6fp, "v6f precise"
+// (F32N with the field-floor fix), and for the v6 kernel they leave unchanged.
 // Headless Chromium + SwiftShader (IEEE float32 WebGL2). Library (dist/hopf-hough.iife.js) and the author's app
 // (web/index.html):
 //  1. v6 bit-identity: the library's V6_SHADERS / V6_KNOWN_PATH_SHADERS against the v6 shader of main at commit 904bcce
@@ -6,9 +7,10 @@
 //     reference/shader_v6_1.glsl (field readback and rendered pixels); the app's v6 kernel against the app of main at
 //     904bcce, kept in reference/web_v6_1.html (readback and frames, ring and known path). The app's v5 kernel is checked
 //     against reference/web_original.html in web_app.mjs.
-//  2. v6f accuracy at γ = 70.7 and 223.6 against the float64 reference (pulse sweep, no softening), on the known path
-//     and on the live path (library: ring-buffer history; app: the ring after 600 live steps); v6f also below v6.
-//  3. v6f display-path pixels against v6 (library render and app frame).
+//  2. v6f and v6fp accuracy at γ = 70.7 and 223.6 against the float64 reference (pulse sweep, no softening), on the
+//     known path and on the live path (library: ring-buffer history; app: the ring after 600 live steps); both below
+//     v6, and v6fp below v6f on the known path (the floor the field-floor fix removes).
+//  3. v6f and v6fp display-path pixels against v6 (library render and app frame).
 import { launch } from './browser.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -70,23 +72,25 @@ function libraryChecks(refFrag) {
     out.identity.push({ what: `rendered frame ${W}×${Hh}, 16 sources ${known ? 'known' : 'ring'}`, n: a.length, same: a.every((v, i) => v === b[i]) });
   }
 
-  // 2. v6f accuracy (shockL2 in %), against v6
-  const solvers = { v6, v6k, v6f: new H.GpuSolver(canvas(W, Hh), H.V6F_SHADERS), v6fk: new H.GpuSolver(canvas(W, Hh), H.V6F_KNOWN_PATH_SHADERS) };
+  // 2. v6f and v6fp accuracy (shockL2 in %), against v6
+  const solvers = { v6, v6k, v6f: new H.GpuSolver(canvas(W, Hh), H.V6F_SHADERS), v6fk: new H.GpuSolver(canvas(W, Hh), H.V6F_KNOWN_PATH_SHADERS),
+    v6fp: new H.GpuSolver(canvas(W, Hh), H.V6FP_SHADERS), v6fpk: new H.GpuSolver(canvas(W, Hh), H.V6FP_KNOWN_PATH_SHADERS) };
   for (const [beta, M, known, q] of [[0.9999, 512, true, 'f32'], [0.9999, 512, false, 'f32'], [0.9999, 2048, true, 'df64'], [0.9999, 2048, false, 'df64'],
     [0.99999, 512, true, 'df64'], [0.99999, 512, false, 'df64'], [0.99999, 2048, true, 'df64'], [0.99999, 2048, false, 'df64']]) {
     const o = { base: { ...H.DEFAULT_CONFIG, softEps: 0, prefilter: false, knownPath: known }, queryMode: q };
     const spec = { beta, motion: 'synchrotron', mT: M, kBin: kb[M], velMode: 2, nShock: 256 };
     const e6 = H.runCase(spec, H.gpuBackend(known ? solvers.v6k : solvers.v6), o).shockL2;
     const e6f = H.runCase(spec, H.gpuBackend(known ? solvers.v6fk : solvers.v6f), o).shockL2;
-    out.accuracy.push({ beta, M, path: known ? 'known' : 'ring', obs: q, v6: e6, v6f: e6f });
+    const e6fp = H.runCase(spec, H.gpuBackend(known ? solvers.v6fpk : solvers.v6fp), o).shockL2;
+    out.accuracy.push({ beta, M, path: known ? 'known' : 'ring', obs: q, v6: e6, v6f: e6f, v6fp: e6fp });
   }
 
-  // 3. display path: v6f vs v6 rendered pixels
-  for (const [n, beta, M, known] of [[16, 0.9, 128, false], [16, 0.9, 512, true], [8, 0.999, 512, true]]) {
+  // 3. display path: v6f and v6fp vs v6 rendered pixels
+  for (const kf of ['v6f', 'v6fp']) for (const [n, beta, M, known] of [[16, 0.9, 128, false], [16, 0.9, 512, true], [8, 0.999, 512, true]]) {
     const { sim, cfg } = scene(n, beta, M, known);
-    const a = frame(known ? solvers.v6fk : solvers.v6f, sim, cfg), b = frame(known ? solvers.v6k : solvers.v6, sim, cfg);
+    const a = frame(known ? solvers[kf + 'k'] : solvers[kf], sim, cfg), b = frame(known ? solvers.v6k : solvers.v6, sim, cfg);
     let diff = 0, maxd = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); if (d) { diff++; maxd = Math.max(maxd, d); } }
-    out.pixels.push({ what: `${n} sources β=${beta} M=${M} ${known ? 'known' : 'ring'}`, bytes: a.length, diff, maxd });
+    out.pixels.push({ what: `${kf} vs v6, ${n} sources β=${beta} M=${M} ${known ? 'known' : 'ring'}`, bytes: a.length, diff, maxd });
   }
   return out;
 }
@@ -136,6 +140,17 @@ async function open(browser, url) {
 
 const pct = (v) => v.toPrecision(3) + '%';
 
+// Accuracy limits (%), about 2x the SwiftShader measurement (docs/ACCURACY.md section 7), keyed beta|M|path.
+// v6fp (with the field-floor fix): v6 is 10-2000x larger on the known path. v6f (default, F32N_NOFIX): its known path
+// sits on the float32 field floor (~1e-3 %), still 8-500x below v6.
+const LIM = {
+  v6fp: { '0.9999|512|known': 3e-4, '0.9999|512|ring': 0.03, '0.9999|2048|known': 3e-4, '0.9999|2048|ring': 4e-3,
+    '0.99999|512|known': 1.5e-3, '0.99999|512|ring': 0.12, '0.99999|2048|known': 1e-3, '0.99999|2048|ring': 0.012 },
+  v6f: { '0.9999|512|known': 2e-3, '0.9999|512|ring': 0.03, '0.9999|2048|known': 2e-3, '0.9999|2048|ring': 4e-3,
+    '0.99999|512|known': 5e-3, '0.99999|512|ring': 0.14, '0.99999|2048|known': 5e-3, '0.99999|2048|ring': 0.012 },
+};
+const GAIN = { v6fp: 20, v6f: 4 };   // required factor below v6 on the known path
+
 export async function runV6fChecks(log) {
   let ok = true;
   const check = (cond, msg) => { log((cond ? 'ok   ' : 'FAIL ') + msg); ok = ok && cond; };
@@ -150,21 +165,24 @@ export async function runV6fChecks(log) {
     await page.addScriptTag({ content: readFileSync(resolve(root, 'dist/hopf-hough.iife.js'), 'utf8') });
     const refFrag = readFileSync(resolve(root, 'reference/shader_v6_1.glsl'), 'utf8').replace(/\n$/, '');
     const lib = await page.evaluate(libraryChecks, refFrag);
-    const def = await page.evaluate(() => [HopfHough.PRODUCTION_SHADERS.kernel, HopfHough.KNOWN_PATH_SHADERS.kernel, new HopfHough.GpuSolver(document.createElement('canvas')).f32n]);
+    const def = await page.evaluate(() => { const H = HopfHough, nofix = (s) => s.fragment.includes('#define F32N_NOFIX\n'), f32n = (s) => s.fragment.includes('#define F32N\n');
+      return [H.PRODUCTION_SHADERS.kernel, H.KNOWN_PATH_SHADERS.kernel, new H.GpuSolver(document.createElement('canvas')).f32n,
+        [H.V6F_SHADERS, H.V6F_KNOWN_PATH_SHADERS].every((s) => f32n(s) && nofix(s)) && [H.V6FP_SHADERS, H.V6FP_KNOWN_PATH_SHADERS].every((s) => f32n(s) && !nofix(s)),
+        H.kernelShaders('v6fp').kernel + '/' + H.kernelShaders('v6fp', true).kernel + '/' + (H.kernelShaders('v6fp', true) === H.V6FP_KNOWN_PATH_SHADERS) + '/' + (H.kernelShaders() === H.V6F_SHADERS)]; });
     await page.close();
     check(errs.length === 0, 'library page has no errors' + (errs.length ? ': ' + errs.join('; ') : ''));
     check(def[0] === 'v6f' && def[1] === 'v6f' && def[2] === true, `library default kernel is v6f (PRODUCTION_SHADERS ${def[0]}, KNOWN_PATH_SHADERS ${def[1]}, GpuSolver() f32n ${def[2]})`);
+    check(def[3] === true && def[4] === 'v6fp/v6fp/true/true', `library V6F_* = F32N + F32N_NOFIX, V6FP_* = F32N with the fix (${def[3]}); kernelShaders('v6fp') ok (${def[4]})`);
     for (const r of lib.identity) check(r.same, `library v6 bit-identical to the v6 shader at main 904bcce: ${r.what} (${r.n} values)`);
-    // Limits about 2x the SwiftShader measurement (docs/ACCURACY.md section 7); v6 is 10-2000x larger on the known path.
-    const LIM = { '0.9999|512|known': 3e-4, '0.9999|512|ring': 0.03, '0.9999|2048|known': 3e-4, '0.9999|2048|ring': 4e-3,
-      '0.99999|512|known': 1.5e-3, '0.99999|512|ring': 0.12, '0.99999|2048|known': 1e-3, '0.99999|2048|ring': 0.012 };
     for (const a of lib.accuracy) {
-      const lim = LIM[`${a.beta}|${a.M}|${a.path}`];
-      const gam = a.beta === 0.9999 ? '70.7' : '224';
-      const gain = a.path === 'known' ? 20 : 1;   // the known path is set by the float32 floor v6f removes
-      check(a.v6f < lim && a.v6f * gain < a.v6, `library v6f γ=${gam}, M=${a.M}, ${a.path}, ${a.obs} obs: ${pct(a.v6f)} < ${lim}% (v6: ${pct(a.v6)}, ${(a.v6 / a.v6f).toFixed(1)}x)`);
+      const key = `${a.beta}|${a.M}|${a.path}`, gam = a.beta === 0.9999 ? '70.7' : '224';
+      for (const kf of ['v6f', 'v6fp']) {
+        const lim = LIM[kf][key], gain = a.path === 'known' ? GAIN[kf] : 1;   // the known path is set by the float32 floors v6f/v6fp remove
+        check(a[kf] < lim && a[kf] * gain < a.v6, `library ${kf} γ=${gam}, M=${a.M}, ${a.path}, ${a.obs} obs: ${pct(a[kf])} < ${lim}% (v6: ${pct(a.v6)}, ${(a.v6 / a[kf]).toFixed(1)}x)`);
+      }
+      if (a.path === 'known') check(a.v6fp * 1.5 < a.v6f, `library v6fp below v6f on the known path, γ=${gam}, M=${a.M}: ${pct(a.v6fp)} vs ${pct(a.v6f)} (${(a.v6f / a.v6fp).toFixed(1)}x)`);
     }
-    for (const p of lib.pixels) check(p.maxd <= 3 && p.diff / p.bytes < 2e-3, `library display path v6f vs v6, ${p.what}: ${p.diff} of ${p.bytes} bytes differ, max ${p.maxd}/255`);
+    for (const p of lib.pixels) check(p.maxd <= 3 && p.diff / p.bytes < 2e-3, `library display path ${p.what}: ${p.diff} of ${p.bytes} bytes differ, max ${p.maxd}/255`);
 
     // ---------------- app: v6 against the app of main at 904bcce ----------------
     const SCENES = [['synchrotron', false, 4, 512, 11], ['oscillator', false, 4, 128, 9], ['synchrotron', true, 4, 512, 11], ['swarm', true, 8, 128, 9]];
@@ -182,24 +200,28 @@ export async function runV6fChecks(log) {
       check(sameF && sameP, `app v6 kernel bit-identical to main 904bcce, ${mode} ${known ? 'known' : 'ring'} ${n} sources M=${M}: readback (${a.field.length / 4} points) and frame (${b.w}×${b.h})`);
     }
 
-    // ---------------- app: v6f accuracy ----------------
-    // [beta, M, kBin, known, live steps, df64 observers, limit %]
-    const CASES = [[0.9999, 512, 11, true, 0, false, 3e-4], [0.9999, 512, 11, false, 600, false, 0.03], [0.9999, 2048, 13, true, 0, true, 3e-4], [0.9999, 2048, 13, false, 600, true, 4e-3],
-      [0.99999, 512, 11, true, 0, true, 1.5e-3], [0.99999, 512, 11, false, 600, true, 0.12], [0.99999, 2048, 13, true, 0, true, 1e-3], [0.99999, 2048, 13, false, 600, true, 0.012]];
-    for (const [beta, M, kb, known, live, df64, lim] of CASES) {
-      const ef = await app.page.evaluate(SWEEP('v6f', beta, M, kb, known, live, df64));
+    // ---------------- app: v6f and v6fp accuracy ----------------
+    // [beta, M, kBin, known, live steps, df64 observers]
+    const CASES = [[0.9999, 512, 11, true, 0, false], [0.9999, 512, 11, false, 600, false], [0.9999, 2048, 13, true, 0, true], [0.9999, 2048, 13, false, 600, true],
+      [0.99999, 512, 11, true, 0, true], [0.99999, 512, 11, false, 600, true], [0.99999, 2048, 13, true, 0, true], [0.99999, 2048, 13, false, 600, true]];
+    for (const [beta, M, kb, known, live, df64] of CASES) {
       const e6 = await app.page.evaluate(SWEEP('v6', beta, M, kb, known, live, df64));
-      const gain = known ? 20 : 1;
-      check(ef < lim && ef * gain < e6, `app v6f γ=${beta === 0.9999 ? '70.7' : '224'}, M=${M}, ${known ? 'known' : 'live (600 steps)'}, ${df64 ? 'df64' : 'f32'} obs: ${pct(ef)} < ${lim}% (v6: ${pct(e6)}, ${(e6 / ef).toFixed(1)}x)`);
+      const key = `${beta}|${M}|${known ? 'known' : 'ring'}`, gam = beta === 0.9999 ? '70.7' : '224', e = {};
+      for (const kf of ['v6f', 'v6fp']) {
+        const ef = e[kf] = await app.page.evaluate(SWEEP(kf, beta, M, kb, known, live, df64));
+        const lim = LIM[kf][key], gain = known ? GAIN[kf] : 1;
+        check(ef < lim && ef * gain < e6, `app ${kf} γ=${gam}, M=${M}, ${known ? 'known' : 'live (600 steps)'}, ${df64 ? 'df64' : 'f32'} obs: ${pct(ef)} < ${lim}% (v6: ${pct(e6)}, ${(e6 / ef).toFixed(1)}x)`);
+      }
+      if (known) check(e.v6fp * 1.5 < e.v6f, `app v6fp below v6f on the known path, γ=${gam}, M=${M}: ${pct(e.v6fp)} vs ${pct(e.v6f)} (${(e.v6f / e.v6fp).toFixed(1)}x)`);
     }
 
-    // ---------------- app: v6f display path vs v6 ----------------
-    for (const s of [['swarm', false, 32, 128, 9], ['swarm', true, 32, 128, 9], ['synchrotron', true, 4, 512, 11]]) {
-      const a = await app.page.evaluate(SNAP('v6f', ...s)), b = await app.page.evaluate(SNAP('v6', ...s));
+    // ---------------- app: v6f and v6fp display path vs v6 ----------------
+    for (const kf of ['v6f', 'v6fp']) for (const s of [['swarm', false, 32, 128, 9], ['swarm', true, 32, 128, 9], ['synchrotron', true, 4, 512, 11]]) {
+      const a = await app.page.evaluate(SNAP(kf, ...s)), b = await app.page.evaluate(SNAP('v6', ...s));
       let diff = 0, maxd = 0; for (let i = 0; i < a.px.length; i++) { const d = Math.abs(a.px[i] - b.px[i]); if (d) { diff++; maxd = Math.max(maxd, d); } }
-      check(maxd <= 3 && diff / a.px.length < 2e-3, `app display path v6f vs v6, ${s[0]} ${s[1] ? 'known' : 'ring'} ${s[2]} sources: ${diff} of ${a.px.length} bytes differ, max ${maxd}/255`);
+      check(maxd <= 3 && diff / a.px.length < 2e-3, `app display path ${kf} vs v6, ${s[0]} ${s[1] ? 'known' : 'ring'} ${s[2]} sources: ${diff} of ${a.px.length} bytes differ, max ${maxd}/255`);
     }
-    check(app.errors.length === 0, `web app: no console errors after the v6f checks${app.errors.length ? ': ' + app.errors.join('; ') : ''}`);
+    check(app.errors.length === 0, `web app: no console errors after the v6f/v6fp checks${app.errors.length ? ': ' + app.errors.join('; ') : ''}`);
     await app.page.close();
   } finally {
     await browser.close();

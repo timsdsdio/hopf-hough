@@ -1,0 +1,26 @@
+# Tim's app (web/index.html), "Run Evolved GPU Suite", release/v6.2 candidate, on Tim's Apple M1 Max (64 GB),
+# Safari (WebGL2 on Metal), 2026-10-25. Measured by Tim; values as printed by the app (2 decimals).
+# Kernel: v6f with the field-floor fix, i.e. the v6 source compiled with #define F32N only. In the release this
+# build is the "v6f precise" kernel (id v6fp); the release default v6f is F32N + F32N_NOFIX (no field-floor fix).
+# The suite uses its own ring-buffer histories (synchrotron pulse sweep, 256 observers, float32 observer points).
+# Columns not reported by Tim (|Δz|, Bulk 128) are left out.
+β (γ)	Pulse 128 Norm	Pulse 512 (4-Vel)	Pulse 2048 (4-Vel)
+0.8000c (1.7)	0.01%	0.00%	0.00%
+0.9500c (3.2)	0.02%	0.00%	0.00%
+0.9900c (7.1)	0.04%	0.00%	0.00%
+0.9990c (22.4)	0.13%	0.01%	0.00%
+0.9999c (70.7)	0.40%	0.02%	0.00%
+γ=70.7 convergence (M=512 → 1024 → 2048):
+  Spline Float64 vs Exact: 0.0236% | 0.00602% | 0.00166%
+  GPU Float32 vs Exact:    0.02%   | 0.01%    | 0.00%
+# Metal check: the GPU error equals the float64 evaluation of the same spline to the printed digits, as in
+# SwiftShader (IEEE float32; results/suite_swiftshader_v6_2.tsv). The float32 code of v6f (default) is the same
+# as this build's apart from the field-floor fix, which F32N_NOFIX removes.
+#
+# Frame rate, same machine and browser, 2D app, 32 sources, default scene, Path: known (exact knots):
+# kernel	defines	fps
+# v5	(original kernel)	120	(the display refresh rate; likely capped)
+# v6	(none)	43
+# v6fp (v6f precise)	F32N	33	(0.77x v6: the field-floor fix costs ~23% of the frame rate)
+# v6f (default)	F32N F32N_NOFIX	42	(~v6; SwiftShader's 0.55x frame-time ratio did not carry over)
+# Not directly comparable with results/suite_m1max_web_kform.txt (v6 62 fps): Chrome, commit 06edf87.
